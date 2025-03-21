@@ -1,4 +1,4 @@
-# BrgithSign NPU Gaze Extension
+# BrightSign NPU Gaze Extension
 
 A BrightSign OS (BSOS) Extension for the Gaze Detection demo of the NPU (AI/ML) feature preview.
 
@@ -19,11 +19,12 @@ This project will create an installable BrightSign Extension that
 2. Acquires images from an attached Video for Linux (v4l) device such as a USB webcam (using OpenCV)
 3. Runs the model for each captured image to detect faces in the image
 4. For each face found:
-    - determine if the face is looking at the screen
-    - count the total number of faces
-    - count the number of faces looking at the screen
-    - decorate the captured image with a bounding box for the face
-    - decorate the captured image with dots for the facial features
+   - determine if the face is looking at the screen
+   - count the total number of faces
+   - count the number of faces looking at the screen
+   - decorate the captured image with a bounding box for the face
+   - decorate the captured image with dots for the facial features
+
 5. Save the decorated image (overwriting any previous image) to `/tmp/output.jpg`
 6. Publish a UDP message on port `:5002` in JSON format with the properties
 
@@ -40,11 +41,11 @@ The use of UDP for prediction output is for simplicity when integrating with Bri
 This repository describes building the project in these major steps:
 
 1. Compile the ONNX formatted model into _RKNN_ format for the Rockchip NPU
-2. Building and testing the model and application code on an [Orange Pi 5 Plus](http://www.orangepi.org/html/hardWare/computerAndMicrocontrollers/service-and-support/Orange-Pi-5-plus.html). _**NB**-_ this is optional, but is included as a guide to developing other applications
+2. Building and testing the model and application code on an [Orange Pi 5 Plus](http://www.orangepi.org/html/hardWare/computerAndMicrocontrollers/service-and-support/Orange-Pi-5-plus.html). ___NB__-_ this is optional, but is included as a guide to developing other applications
 3. Building and testing the model and application code on a [BrightSign XT-5 Player](https://www.brightsign.biz/brightsign-players/series-5/xt5/)
 4. Packaging the application and model as a BrightSign Extension
 
-**IMPORTANT: THE TOOLCHAIN REFERENCED BY THIS PROJECT REQUIRES A DEVELOPMENT HOST WITH x86_64 (aka AMD64) INSTRUCTION SET ARCHITECTURE.** This means that many common dev hosts such as Macs with Apple Silicon or ARM-based Windows and Linux computers **WILL NOT WORK.**  That also includes the OrangePi5Plus (OPi) as it is ARM-based. The OPi **_can_** be used to develop the application with good effect, but the model compilation and final build for BrigthSign OS (BSOS) **_must_** be performed on an x86_64 host.
+__IMPORTANT: THE TOOLCHAIN REFERENCED BY THIS PROJECT REQUIRES A DEVELOPMENT HOST WITH x86_64 (aka AMD64) INSTRUCTION SET ARCHITECTURE.__ This means that many common dev hosts such as Macs with Apple Silicon or ARM-based Windows and Linux computers __WILL NOT WORK.__  That also includes the OrangePi5Plus (OPi) as it is ARM-based. The OPi ___can___ be used to develop the application with good effect, but the model compilation and final build for BrigthSign OS (BSOS) ___must___ be performed on an x86_64 host.
 
 ### Requirements
 
@@ -58,7 +59,6 @@ This repository describes building the project in these major steps:
    - _should_ work with any UVC device
 
 5. Cables, switches, monitors, etc to connect it all.
-
 
 #### Software Requirements -- Development Host
 
