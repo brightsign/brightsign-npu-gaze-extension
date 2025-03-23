@@ -2,14 +2,12 @@
 
 **_STATUS_**: In development.
 
-
-Model compilation instructions validated and tested.
-
-Orange Pi development guide pending
-
-Build for XT5 instructions validated and tested
-
-Extension Packaging Instructions in development
+| Step | Status |
+| --- | --- |
+| Model compilation instructions | validated and tested |
+| Orange Pi development guide | pending |
+| Build for XT5 instructions | validated and tested |
+| Extension Packaging Instructions | in development |
 
 A BrightSign OS (BSOS) Extension for the Gaze Detection demo of the NPU (AI/ML) feature preview.
 
