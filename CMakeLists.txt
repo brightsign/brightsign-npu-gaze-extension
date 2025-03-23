@@ -152,12 +152,11 @@ target_link_libraries(attention_demo
 add_custom_command(TARGET attention_demo POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy ${RKNN_RT_LIB} $<TARGET_FILE_DIR:attention_demo>
   COMMAND ${CMAKE_COMMAND} -E copy ${RGA_LIB} $<TARGET_FILE_DIR:attention_demo>
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/model $<TARGET_FILE_DIR:attention_demo>/model
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/install/model $<TARGET_FILE_DIR:attention_demo>/model
 )
 
 # install target and libraries
-set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/attention_demo_${CMAKE_SYSTEM_NAME})
+set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/)
 install(TARGETS attention_demo DESTINATION ./)
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)
-install(DIRECTORY model DESTINATION ./)

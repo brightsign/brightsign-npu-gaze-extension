@@ -1,5 +1,16 @@
 # BrightSign NPU Gaze Extension
 
+**_STATUS_**: In development.
+
+
+Model compilation instructions validated and tested.
+
+Orange Pi development guide pending
+
+Build for XT5 instructions validated and tested
+
+Extension Packaging Instructions in development
+
 A BrightSign OS (BSOS) Extension for the Gaze Detection demo of the NPU (AI/ML) feature preview.
 
 This repository gives the steps and tools to
@@ -76,6 +87,7 @@ git clone git@github.com:brightsign/brightsign-npu-gaze-extension.git
 cd brightsign-npu-gaze-extension
 
 export project_root=$(pwd)
+# this environment variable is used in the following scripts to refer to the root of the project
 ```
 
 3. Clone the supporting Rockchip repositories (this can take a while)
@@ -88,6 +100,21 @@ git clone https://github.com/airockchip/rknn-toolkit2.git --depth 1 --branch v2.
 git clone https://github.com/airockchip/rknn_model_zoo.git --depth 1 --branch v2.3.0
 
 cd -
+```
+
+4. Install the BSOS SDK
+
+(*Required** to build binaries that will execute properly on the target XT5 player. Contact BrightSign if you do not have an appropriate SDK.)
+
+Building any executable requires access to correct versions of headers and libraries that are compatible with the target run-time environment. For Yocto-derived projects like BSOS, the build process for the OS also creates an SDK/toolchain package that can be used to cross-compile projects for the target player.
+
+**This guide assumes you have the SDK `brightsign-x86_64-cobra-toolchain-9.1.22.2-BCN-17804-unreleased-pensando-gaze-demo-20250304.sh` in the project root**
+
+```sh
+cd "${project_root:-.}"
+
+sh brightsign-x86_64-cobra-toolchain-9.1.22.2-BCN-17804-unreleased-pensando-gaze-demo-20250304.sh
+# answer the questions, use `./sdk` for the installation directory
 ```
 
 ## Step 1 - Compile ONNX Models for the Rockchip NPU
@@ -131,13 +158,14 @@ mkdir -p ../../install/model/RK3588
 cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
 ```
 
-Copy run-time libs to the right place for later
+TODO:  DELETE -- this isn't needed anymore ?Copy run-time libs to the right place for later
 
 ```sh
-cd "${project_root:-.}"/toolkit/rknn_model_zoo/
+# cd "${project_root:-.}"/toolkit/rknn_model_zoo/
 
-mkdir -p ../../install/lib
-cp 3rdparty/rknpu2/Linux/armhf/librknnrt.so ../../install/lib/
+# mkdir -p ../../install/lib
+# cp 3rdparty/rknpu2/Linux/armhf/librknnrt.so ../../install/lib/
+# cp 3rdparty/librga/Linux/armhf/librga.so ../../install/lib/
 ```
 
 **The necessary binaries (model, libraries) are now in the `install` directory of the project**
@@ -151,3 +179,65 @@ Use of the Debian image from the eMMC is recommended. Common tools like `git`, `
 **FIRST**: Copy this project tree to the OPi (can git clone and then copy the binaries built in Step 1 from the `install` directory or use network mounts).
 
 **THEN**: Connect to the OPi using a local head, ssh, VSCode remote or other mechanism.
+
+```sh
+### TODO: add build instructions
+```
+
+## Step 3 - Build and Test on XT5
+
+The BrightSign SDK for the specific BSOS version must be used on an x86 host to build the binary that can be deployed on to the XT5 player.
+
+_Ensure you have installed the SDK in `${project_root}/sdk` as described in Step 0 - Setup._
+
+The setup script `environment-setup-aarch64-oe-linux` will set appropriate paths for the toolchain and files. This script must be `source`d in every new shell.
+
+```sh
+cd "${project_root:-.}"
+
+source ./sdk/environment-setup-aarch64-oe-linux
+
+# this command can be used to clean old builds
+#rm -rf build
+
+mkdir -p build && cd $_
+
+cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588"
+make
+make install
+```
+
+**The built binary and libraries are copied into the `install` directory alongside the model binary.**
+
+You can now copy that directory to the player and run it.
+
+**Suggested workflow**
+
+* zip the install dir and upload to player sd card
+* ssh to player and exit to linux shell
+* expand the zip to `/usr/local/gaze` (which is mounted with exec)
+
+_If you are unfamiliar with this workflow or have not un-secured your player, consult BrightSign._
+
+## Step 4 - Package the Extension
+
+Copy the extension scripts to the install dir
+
+```sh
+cd "${project_root:-.}"
+
+cp start-ext.sh install/
+cp bsext_init install/
+```
+
+Run the make extension script on the install dir
+
+```sh
+cd "${project_root:-.}"/install
+
+../sh/make-example-extension-lvm 
+```
+
+### for development
+
+Transfer the files `install/ext_npu_gaze.squashfs` and `install/ext_npu_gaze_install-lvm.sh` to an unsecured player. From a linux command on the player (ssh, telnet, or serial / ctl-c, exit, exit to get to command prompt), copy both files to an executable location (e.g. `cp /storage/sd/ext_npu_* /usr/local/`) and run the install script `sh /usr/local/ext_npu_gaze_install-lvm.sh` to install the extension.  Ctrl-D or exit to resume the BrightScript interpretter.
