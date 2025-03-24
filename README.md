@@ -108,6 +108,9 @@ Building any executable requires access to correct versions of headers and libra
 
 **This guide assumes you have the SDK `brightsign-x86_64-cobra-toolchain-9.1.22.2-BCN-17804-unreleased-pensando-gaze-demo-20250304.sh` in the project root**
 
+You can access the SDK from BrightSign.  The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice.  This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
+
+
 ```sh
 cd "${project_root:-.}"
 
@@ -233,7 +236,7 @@ Run the make extension script on the install dir
 ```sh
 cd "${project_root:-.}"/install
 
-../sh/make-example-extension-lvm 
+../sh/make-example-extension-lvm
 ```
 
 ### for development
