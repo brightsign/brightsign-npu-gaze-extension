@@ -1,6 +1,6 @@
 # BrightSign NPU Gaze Extension
 
-**_STATUS_**: In development.
+___STATUS___: In development.
 
 | Step | Status |
 | --- | --- |
@@ -28,6 +28,7 @@ This project will create an installable BrightSign Extension that
 2. Acquires images from an attached Video for Linux (v4l) device such as a USB webcam (using OpenCV)
 3. Runs the model for each captured image to detect faces in the image
 4. For each face found:
+
    - determine if the face is looking at the screen
    - count the total number of faces
    - count the number of faces looking at the screen
@@ -106,7 +107,9 @@ cd -
 
 Building any executable requires access to correct versions of headers and libraries that are compatible with the target run-time environment. For Yocto-derived projects like BSOS, the build process for the OS also creates an SDK/toolchain package that can be used to cross-compile projects for the target player.
 
-**This guide assumes you have the SDK `brightsign-x86_64-cobra-toolchain-9.1.22.2-BCN-17804-unreleased-pensando-gaze-demo-20250304.sh` in the project root**
+Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
+
+**INSTALL INTO `./sdk`**
 
 You can access the SDK from BrightSign.  The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice.  This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
 
@@ -114,9 +117,41 @@ You can access the SDK from BrightSign.  The SDK is a shell script that will ins
 ```sh
 cd "${project_root:-.}"
 
-sh brightsign-x86_64-cobra-toolchain-9.1.22.2-BCN-17804-unreleased-pensando-gaze-demo-20250304.sh
+sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh
 # answer the questions, use `./sdk` for the installation directory
 ```
+
+### Unsecure the Player and update OS
+
+* Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
+
+0.  Power off the player
+
+1.  **Enable serial control** | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the **`SVC`** button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
+
+    ```bash
+    => console on
+    => reboot
+    ```
+
+2.  **Reboot the player again** using the **`RST`** button or the _Reboot_ button from the **Control** tab of DWS for the player.  Within the first 3 seconds after boot, again type Ctl-C in your serial terminal program to get the boot prompt and type:
+
+    ```bash
+    => setenv SECURE_CHECKS 0
+    => envsave
+    => printenv
+    ```
+
+Verify that `SECURE_CHECKS` is set to 0. And type `reboot`.
+
+**The player is now unsecured.**
+
+3.  Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
+
+4.  Use DWS **SD** tab to _Browse_ and _Upload_ the OS update to the player. From the **Control** tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
+
+Verify the OS was updated on the **Info** tab of DWS where the `BrightSign OS Version` should be listed as
+    `9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
 
 ## Step 1 - Compile ONNX Models for the Rockchip NPU
 
@@ -182,7 +217,7 @@ Use of the Debian image from the eMMC is recommended. Common tools like `git`, `
 **THEN**: Connect to the OPi using a local head, ssh, VSCode remote or other mechanism.
 
 ```sh
-### TODO: add build instructions
+
 ```
 
 ## Step 3 - Build and Test on XT5
