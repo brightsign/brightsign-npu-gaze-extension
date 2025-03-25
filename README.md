@@ -113,7 +113,6 @@ Download the [SDK version that matches the pre-release OS with OpenCV Support](h
 
 You can access the SDK from BrightSign.  The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice.  This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
 
-
 ```sh
 cd "${project_root:-.}"
 
@@ -125,33 +124,32 @@ sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20
 
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
-0.  Power off the player
+0. Power off the player
 
-1.  **Enable serial control** | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the **`SVC`** button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
+1. __Enable serial control__ | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the __`SVC`__ button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
 
-    ```bash
-    => console on
-    => reboot
-    ```
+```bash
+=> console on
+=> reboot
+```
 
-2.  **Reboot the player again** using the **`RST`** button or the _Reboot_ button from the **Control** tab of DWS for the player.  Within the first 3 seconds after boot, again type Ctl-C in your serial terminal program to get the boot prompt and type:
+2. __Reboot the player again__ using the __`RST`__ button or the _Reboot_ button from the __Control__ tab of DWS for the player.  Within the first 3 seconds after boot, again type Ctl-C in your serial terminal program to get the boot prompt and type:
 
-    ```bash
-    => setenv SECURE_CHECKS 0
-    => envsave
-    => printenv
-    ```
+```bash
+=> setenv SECURE_CHECKS 0
+=> envsave
+=> printenv
+```
 
 Verify that `SECURE_CHECKS` is set to 0. And type `reboot`.
 
 **The player is now unsecured.**
 
-3.  Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
+3. Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
+4. Use DWS __SD__ tab to _Browse_ and _Upload_ the OS update to the player. From the __Control__ tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
 
-4.  Use DWS **SD** tab to _Browse_ and _Upload_ the OS update to the player. From the **Control** tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
-
-Verify the OS was updated on the **Info** tab of DWS where the `BrightSign OS Version` should be listed as
-    `9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
+Verify the OS was updated on the __Info__ tab of DWS where the `BrightSign OS Version` should be listed as
+`9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
 
 ## Step 1 - Compile ONNX Models for the Rockchip NPU
 
@@ -212,12 +210,59 @@ While not strictly required, it can be handy to move the project to an OrangePi 
 
 Use of the Debian image from the eMMC is recommended. Common tools like `git`, `gcc` and `cmake` are also needed to build the project. In the interest of brevity, installation instructions for those are not included with this project.
 
-**FIRST**: Copy this project tree to the OPi (can git clone and then copy the binaries built in Step 1 from the `install` directory or use network mounts).
+**FIRST**: Clone this project tree to the OPi
 
-**THEN**: Connect to the OPi using a local head, ssh, VSCode remote or other mechanism.
+**_Unless otherwise noted all commands in this section are executed on the OrangePi -- via ssh or other means_**
 
 ```sh
+#cd path/to/your/directory
+git clone git@github.com:brightsign/brightsign-npu-gaze-extension.git
+cd brightsign-npu-gaze-extension
 
+export project_root=$(pwd)
+# this environment variable is used in the following scripts to refer to the root of the project
+```
+
+**SECOND**: Copy the `install` directory, all sub directories and files to the OPi
+
+```sh
+# example using scp... 
+cd "${project_root:-.}"
+
+# customize as needed
+export dev_user=dev_user
+export dev_host=192.168.x.x
+export project_path=/path/to/project/on/dev_host
+
+# copy the files to the device
+scp -r  $dev_user@$dev_host:$project_path/install ./
+# may propmpt for password depending on your setup
+
+# check the files are there -- sample output shown
+tree -Dsh install/
+# [4.0K Mar 21 07:48]  install/
+# ├── [4.0K Mar 21 07:50]  lib
+# │   ├── [167K Mar 21 07:50]  librga.so
+# │   └── [4.4M Mar 21 07:49]  librknnrt.so
+# └── [4.0K Mar 21 07:48]  model
+#     └── [4.0K Mar 21 07:48]  RK3588
+#         └── [ 18M Mar 21 07:48]  RetinaFace.rknn
+
+# 3 directories, 3 files
+
+```
+
+**Build the project**
+
+```sh
+cd "${project_root:-.}"
+
+mkdir -p build && cd $_
+
+# cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588"
+cmake .. -DTARGET_SOC="rk3588"
+make
+make install
 ```
 
 ## Step 3 - Build and Test on XT5
