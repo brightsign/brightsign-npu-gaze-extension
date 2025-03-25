@@ -125,6 +125,7 @@ sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
 0. Power off the player
+
 1. __Enable serial control__ | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the __`SVC`__ button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
 
 ```bash
@@ -318,8 +319,11 @@ rm -rf ext_npu_gaze*
 
 ### for development
 
-* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the __SD__ tab of DWS or other means.
+
+* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the **SD** tab of DWS or other means.
+
 * Connect to the player via ssh, telnet, or serial.
+
 * Type Ctl-C to drop into the BrightScript Debugger, then type `exit` to the BrightSign prompt and `exit` again to get to the linux command prompt.
 
 At the command prompt, **install** the extension with:
@@ -345,4 +349,5 @@ The gaze demo application will start automatically on boot (see `bsext_init` and
 _this section under development_
 
 * Submit the extension to BrightSign for signing
+
 * the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
