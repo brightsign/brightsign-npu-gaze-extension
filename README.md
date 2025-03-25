@@ -7,7 +7,7 @@ ___STATUS___: In development.
 | Model compilation instructions | validated and tested |
 | Orange Pi development guide | pending |
 | Build for XT5 instructions | validated and tested |
-| Extension Packaging Instructions | in development |
+| Extension Packaging Instructions | validated for development |
 
 A BrightSign OS (BSOS) Extension for the Gaze Detection demo of the NPU (AI/ML) feature preview.
 
@@ -206,6 +206,8 @@ TODO:  DELETE -- this isn't needed anymore ?Copy run-time libs to the right plac
 
 ## (Optional) Step 2 - Build and test on Orange Pi
 
+_this section under development_
+
 While not strictly required, it can be handy to move the project to an OrangePi (OPi) as this facilitates a more responsive build and debug process due to a fully linux distribution and native compiler. Consult the [Orange Pi Wiki](http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_5_Plus) for more information.
 
 Use of the Debian image from the eMMC is recommended. Common tools like `git`, `gcc` and `cmake` are also needed to build the project. In the interest of brevity, installation instructions for those are not included with this project.
@@ -317,8 +319,42 @@ Run the make extension script on the install dir
 cd "${project_root:-.}"/install
 
 ../sh/make-example-extension-lvm
+# zip for convenience to transfer to player
+zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
+# clean up
+rm -rf ext_npu_gaze*
 ```
 
 ### for development
 
-Transfer the files `install/ext_npu_gaze.squashfs` and `install/ext_npu_gaze_install-lvm.sh` to an unsecured player. From a linux command on the player (ssh, telnet, or serial / ctl-c, exit, exit to get to command prompt), copy both files to an executable location (e.g. `cp /storage/sd/ext_npu_* /usr/local/`) and run the install script `sh /usr/local/ext_npu_gaze_install-lvm.sh` to install the extension.  Ctrl-D or exit to resume the BrightScript interpretter.
+* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the **SD** tab of DWS or other means.
+
+* Connect to the player via ssh, telnet, or serial.
+
+* Type Ctl-C to drop into the BrightScript Debugger, then type `exit` to the BrightSign prompt and `exit` again to get to the linux command prompt.
+
+At the command prompt, **install** the extension with:
+
+```bash
+cd /storage/sd
+# if you have multiple builds on the card, you might want to delete old ones
+# or modify the unzip command to ONLY unzip the version you want to install
+unzip ext_npu_gaze-*.zip
+# you may need to answer prompts to overwrite old files
+
+# install the extension
+bash ./ext_npu_gaze_install-lvm.sh
+
+# the extension will be installed on reboot
+reboot
+```
+
+The gaze demo application will start automatically on boot (see `bsext_init` and `start-ext.sh`).  Files will have been unpacked to `/var/volatile/bsext/ext_npu_gaze`.
+
+### for production
+
+_this section under development_
+
+* Submit the extension to BrightSign for signing
+
+* the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
