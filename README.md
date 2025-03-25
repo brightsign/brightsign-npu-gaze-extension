@@ -5,7 +5,7 @@ ___STATUS___: In development.
 | Step | Status |
 | --- | --- |
 | Model compilation instructions | validated and tested |
-| Orange Pi development guide | pending |
+| Orange Pi development guide | reference build validated and tested |
 | Build for XT5 instructions | validated and tested |
 | Extension Packaging Instructions | validated for development |
 
@@ -192,16 +192,6 @@ mkdir -p ../../install/model/RK3588
 cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
 ```
 
-TODO:  DELETE -- this isn't needed anymore ?Copy run-time libs to the right place for later
-
-```sh
-# cd "${project_root:-.}"/toolkit/rknn_model_zoo/
-
-# mkdir -p ../../install/lib
-# cp 3rdparty/rknpu2/Linux/armhf/librknnrt.so ../../install/lib/
-# cp 3rdparty/librga/Linux/armhf/librga.so ../../install/lib/
-```
-
 **The necessary binaries (model, libraries) are now in the `install` directory of the project**
 
 ## (Optional) Step 2 - Build and test on Orange Pi
@@ -212,12 +202,61 @@ While not strictly required, it can be handy to move the project to an OrangePi 
 
 Use of the Debian image from the eMMC is recommended. Common tools like `git`, `gcc` and `cmake` are also needed to build the project. In the interest of brevity, installation instructions for those are not included with this project.
 
-**FIRST**: Copy this project tree to the OPi (can git clone and then copy the binaries built in Step 1 from the `install` directory or use network mounts).
+**FIRST**: Clone this project tree to the OPi
 
-**THEN**: Connect to the OPi using a local head, ssh, VSCode remote or other mechanism.
+___Unless otherwise noted all commands in this section are executed on the OrangePi -- via ssh or other means___
 
 ```sh
+#cd path/to/your/directory
+git clone git@github.com:brightsign/brightsign-npu-gaze-extension.git
+cd brightsign-npu-gaze-extension
 
+export project_root=$(pwd)
+# this environment variable is used in the following scripts to refer to the root of the project
+```
+
+**SECOND**: Copy the `install` directory, all sub directories and files to the OPi
+
+```sh
+# example using scp... 
+cd "${project_root:-.}"
+
+# customize as needed
+export dev_user=dev_user
+export dev_host=192.168.x.x
+export project_path=/path/to/project/on/dev_host
+
+# copy the files to the device
+scp -r  $dev_user@$dev_host:$project_path/install ./
+# may propmpt for password depending on your setup
+
+# check the files are there -- sample output shown
+tree -Dsh install/
+# [4.0K Mar 21 07:48]  install/
+# ├── [4.0K Mar 21 07:50]  lib
+# │   ├── [167K Mar 21 07:50]  librga.so
+# │   └── [4.4M Mar 21 07:49]  librknnrt.so
+# └── [4.0K Mar 21 07:48]  model
+#     └── [4.0K Mar 21 07:48]  RK3588
+#         └── [ 18M Mar 21 07:48]  RetinaFace.rknn
+
+# 3 directories, 3 files
+
+```
+
+**Build the project**
+
+```sh
+cd "${project_root:-.}"
+
+# this command can be used to clean old builds
+#rm -rf build
+
+mkdir -p build && cd $_
+
+cmake .. -DTARGET_SOC="rk3588"
+make
+make install
 ```
 
 ## Step 3 - Build and Test on XT5
@@ -279,6 +318,7 @@ rm -rf ext_npu_gaze*
 ```
 
 ### for development
+
 
 * Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the **SD** tab of DWS or other means.
 

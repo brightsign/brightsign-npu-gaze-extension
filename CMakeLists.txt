@@ -10,11 +10,13 @@ set(CMAKE_CXX_FLAGS "-pthread")
 add_definitions(-DDISABLE_RGA)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+# OrangePi or other for development
     find_package(Boost REQUIRED COMPONENTS filesystem system)
     find_package(OpenCV REQUIRED)
 
     set(MY_LIBS ${Boost_LIBRARIES} ${OpenCV_LIBS})
 else()
+# cross-compile from x86 for rk3588, XT5
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-poison-system-directories")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wpoison-system-directories")
 
@@ -80,50 +82,55 @@ include_directories(${CMAKE_SOURCE_DIR}/include/3rdparty)
 include_directories(${RGA_PATH}/include)
 
 # opencv
-# find_package(OpenCV REQUIRED)
-message(STATUS "OECORE_TARGET_SYSROOT: ${OECORE_TARGET_SYSROOT}")
-include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
-include_directories(${OECORE_TARGET_SYSROOT}/usr/include/opencv4)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+  find_package(OpenCV REQUIRED)
+else()
+  message(STATUS "OECORE_TARGET_SYSROOT: ${OECORE_TARGET_SYSROOT}")
+  include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
+  include_directories(${OECORE_TARGET_SYSROOT}/usr/include/opencv4)
+endif()
 
 set(CMAKE_INSTALL_RPATH "lib")
 
-get_filename_component(OECORE_TARGET_SYSROOT_ABS "${OECORE_TARGET_SYSROOT}" ABSOLUTE)
-message(STATUS "OECORE_TARGET_SYSROOT_ABS: ${OECORE_TARGET_SYSROOT_ABS}")
-set(OpenCV_LIBS
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_core.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_aruco.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_bgsegm.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_calib3d.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ccalib.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_datasets.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_features2d.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_gapi.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_hfs.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_highgui.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_imgcodecs.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_img_hash.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_imgproc.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_line_descriptor.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_optflow.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_photo.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_quality.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_rapid.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_rgbd.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_saliency.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_shape.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_stereo.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_stitching.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_superres.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_surface_matching.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_tracking.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ts.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_videoio.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_video.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_videostab.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_xfeatures2d.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ximgproc.so
-  ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_xphoto.so
-)
+if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+  get_filename_component(OECORE_TARGET_SYSROOT_ABS "${OECORE_TARGET_SYSROOT}" ABSOLUTE)
+  message(STATUS "OECORE_TARGET_SYSROOT_ABS: ${OECORE_TARGET_SYSROOT_ABS}")
+  set(OpenCV_LIBS
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_core.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_aruco.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_bgsegm.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_calib3d.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ccalib.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_datasets.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_features2d.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_gapi.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_hfs.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_highgui.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_imgcodecs.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_img_hash.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_imgproc.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_line_descriptor.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_optflow.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_photo.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_quality.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_rapid.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_rgbd.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_saliency.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_shape.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_stereo.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_stitching.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_superres.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_surface_matching.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_tracking.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ts.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_videoio.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_video.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_videostab.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_xfeatures2d.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ximgproc.so
+    ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_xphoto.so
+  )
+endif()
 
 set(CMAKE_INSTALL_RPATH "lib")
 
