@@ -5,7 +5,7 @@ ___STATUS___: In development.
 | Step | Status |
 | --- | --- |
 | Model compilation instructions | validated and tested |
-| Orange Pi development guide | pending |
+| Orange Pi development guide | reference build validated and tested |
 | Build for XT5 instructions | validated and tested |
 | Extension Packaging Instructions | validated for development |
 
@@ -125,7 +125,6 @@ sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
 0. Power off the player
-
 1. __Enable serial control__ | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the __`SVC`__ button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
 
 ```bash
@@ -192,16 +191,6 @@ mkdir -p ../../install/model/RK3588
 cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
 ```
 
-TODO:  DELETE -- this isn't needed anymore ?Copy run-time libs to the right place for later
-
-```sh
-# cd "${project_root:-.}"/toolkit/rknn_model_zoo/
-
-# mkdir -p ../../install/lib
-# cp 3rdparty/rknpu2/Linux/armhf/librknnrt.so ../../install/lib/
-# cp 3rdparty/librga/Linux/armhf/librga.so ../../install/lib/
-```
-
 **The necessary binaries (model, libraries) are now in the `install` directory of the project**
 
 ## (Optional) Step 2 - Build and test on Orange Pi
@@ -214,7 +203,7 @@ Use of the Debian image from the eMMC is recommended. Common tools like `git`, `
 
 **FIRST**: Clone this project tree to the OPi
 
-**_Unless otherwise noted all commands in this section are executed on the OrangePi -- via ssh or other means_**
+___Unless otherwise noted all commands in this section are executed on the OrangePi -- via ssh or other means___
 
 ```sh
 #cd path/to/your/directory
@@ -259,9 +248,11 @@ tree -Dsh install/
 ```sh
 cd "${project_root:-.}"
 
+# this command can be used to clean old builds
+#rm -rf build
+
 mkdir -p build && cd $_
 
-# cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588"
 cmake .. -DTARGET_SOC="rk3588"
 make
 make install
@@ -327,10 +318,8 @@ rm -rf ext_npu_gaze*
 
 ### for development
 
-* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the **SD** tab of DWS or other means.
-
+* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the __SD__ tab of DWS or other means.
 * Connect to the player via ssh, telnet, or serial.
-
 * Type Ctl-C to drop into the BrightScript Debugger, then type `exit` to the BrightSign prompt and `exit` again to get to the linux command prompt.
 
 At the command prompt, **install** the extension with:
@@ -356,5 +345,4 @@ The gaze demo application will start automatically on boot (see `bsext_init` and
 _this section under development_
 
 * Submit the extension to BrightSign for signing
-
 * the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
