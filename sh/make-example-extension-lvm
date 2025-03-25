@@ -6,7 +6,7 @@ mapper_vol_name=ext_${name}
 tmp_vol_name=tmp_${name}
 mount_name=ext_${name}
 
-workdir=extension-${name}-temp/
+workdir=../extension-${name}-temp/
 
 if ! echo "${name}" | egrep -q '^[a-z][a-z0-9_]{2,12}$'; then
     echo "Error: Invalid extension name specified" 1>&2
@@ -16,14 +16,16 @@ fi
 rm -rf "${workdir}"
 mkdir -p "${workdir}"
 
-now=`date`
-cat <<EOF >${workdir}bsext_init
-#!/bin/sh
-echo
-echo "EXTENSION ${name} INIT built ${now} \$@"
-echo -n "Now is: "; date
-echo
-EOF
+# now=`date`
+# cat <<EOF >${workdir}bsext_init
+# #!/bin/sh
+# echo
+# echo "EXTENSION ${name} INIT built ${now} \$@"
+# echo -n "Now is: "; date
+# echo
+# EOF
+
+cp -r * ${workdir}
 
 chmod +x ${workdir}bsext_init
 rm -f ext_${name}.squashfs

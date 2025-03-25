@@ -7,7 +7,7 @@ ___STATUS___: In development.
 | Model compilation instructions | validated and tested |
 | Orange Pi development guide | pending |
 | Build for XT5 instructions | validated and tested |
-| Extension Packaging Instructions | in development |
+| Extension Packaging Instructions | validated for development |
 
 A BrightSign OS (BSOS) Extension for the Gaze Detection demo of the NPU (AI/ML) feature preview.
 
@@ -113,7 +113,6 @@ Download the [SDK version that matches the pre-release OS with OpenCV Support](h
 
 You can access the SDK from BrightSign.  The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice.  This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
 
-
 ```sh
 cd "${project_root:-.}"
 
@@ -125,33 +124,32 @@ sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20
 
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
-0.  Power off the player
+0. Power off the player
 
-1.  **Enable serial control** | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the **`SVC`** button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
+1. __Enable serial control__ | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the __`SVC`__ button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
 
-    ```bash
-    => console on
-    => reboot
-    ```
+```bash
+=> console on
+=> reboot
+```
 
-2.  **Reboot the player again** using the **`RST`** button or the _Reboot_ button from the **Control** tab of DWS for the player.  Within the first 3 seconds after boot, again type Ctl-C in your serial terminal program to get the boot prompt and type:
+2. __Reboot the player again__ using the __`RST`__ button or the _Reboot_ button from the __Control__ tab of DWS for the player.  Within the first 3 seconds after boot, again type Ctl-C in your serial terminal program to get the boot prompt and type:
 
-    ```bash
-    => setenv SECURE_CHECKS 0
-    => envsave
-    => printenv
-    ```
+```bash
+=> setenv SECURE_CHECKS 0
+=> envsave
+=> printenv
+```
 
 Verify that `SECURE_CHECKS` is set to 0. And type `reboot`.
 
 **The player is now unsecured.**
 
-3.  Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
+3. Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
+4. Use DWS __SD__ tab to _Browse_ and _Upload_ the OS update to the player. From the __Control__ tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
 
-4.  Use DWS **SD** tab to _Browse_ and _Upload_ the OS update to the player. From the **Control** tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
-
-Verify the OS was updated on the **Info** tab of DWS where the `BrightSign OS Version` should be listed as
-    `9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
+Verify the OS was updated on the __Info__ tab of DWS where the `BrightSign OS Version` should be listed as
+`9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
 
 ## Step 1 - Compile ONNX Models for the Rockchip NPU
 
@@ -207,6 +205,8 @@ TODO:  DELETE -- this isn't needed anymore ?Copy run-time libs to the right plac
 **The necessary binaries (model, libraries) are now in the `install` directory of the project**
 
 ## (Optional) Step 2 - Build and test on Orange Pi
+
+_this section under development_
 
 While not strictly required, it can be handy to move the project to an OrangePi (OPi) as this facilitates a more responsive build and debug process due to a fully linux distribution and native compiler. Consult the [Orange Pi Wiki](http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_5_Plus) for more information.
 
@@ -272,8 +272,42 @@ Run the make extension script on the install dir
 cd "${project_root:-.}"/install
 
 ../sh/make-example-extension-lvm
+# zip for convenience to transfer to player
+zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
+# clean up
+rm -rf ext_npu_gaze*
 ```
 
 ### for development
 
-Transfer the files `install/ext_npu_gaze.squashfs` and `install/ext_npu_gaze_install-lvm.sh` to an unsecured player. From a linux command on the player (ssh, telnet, or serial / ctl-c, exit, exit to get to command prompt), copy both files to an executable location (e.g. `cp /storage/sd/ext_npu_* /usr/local/`) and run the install script `sh /usr/local/ext_npu_gaze_install-lvm.sh` to install the extension.  Ctrl-D or exit to resume the BrightScript interpretter.
+* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the **SD** tab of DWS or other means.
+
+* Connect to the player via ssh, telnet, or serial.
+
+* Type Ctl-C to drop into the BrightScript Debugger, then type `exit` to the BrightSign prompt and `exit` again to get to the linux command prompt.
+
+At the command prompt, **install** the extension with:
+
+```bash
+cd /storage/sd
+# if you have multiple builds on the card, you might want to delete old ones
+# or modify the unzip command to ONLY unzip the version you want to install
+unzip ext_npu_gaze-*.zip
+# you may need to answer prompts to overwrite old files
+
+# install the extension
+bash ./ext_npu_gaze_install-lvm.sh
+
+# the extension will be installed on reboot
+reboot
+```
+
+The gaze demo application will start automatically on boot (see `bsext_init` and `start-ext.sh`).  Files will have been unpacked to `/var/volatile/bsext/ext_npu_gaze`.
+
+### for production
+
+_this section under development_
+
+* Submit the extension to BrightSign for signing
+
+* the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
