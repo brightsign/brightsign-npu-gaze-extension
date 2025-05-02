@@ -25,6 +25,7 @@ else()
     include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
     include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
     include_directories(${OECORE_TARGET_SYSROOT}/usr/include/opencv4)
+    include_directories(${OECORE_TARGET_SYSROOT}/usr/include/rga)
 
     link_directories(${OECORE_TARGET_SYSROOT}/usr/lib)
     set(MY_LIBS boost_system boost_filesystem
@@ -70,12 +71,14 @@ set(LIB_ARCH aarch64)
 set(RKNN_RT_LIB ${CMAKE_SOURCE_DIR}/include/librknnrt.so)
 
 #rga -- the 3588 rga lib is okay 3576
-set(RGA_PATH ${CMAKE_SOURCE_DIR}/include/3rdparty/rga/RK3588)
-set(RGA_LIB ${RGA_PATH}/lib/Linux//${LIB_ARCH}/librga.so)
+# set(RGA_PATH ${CMAKE_SOURCE_DIR}/include/3rdparty/rga/RK3588)
+# set(RGA_LIB ${RGA_PATH}/lib/Linux//${LIB_ARCH}/librga.so)
+set(RGA_LIB ${OECORE_TARGET_SYSROOT}/usr/lib/librga.so)
 
 # turbojpeg
-set(TURBOJPEG_PATH ${CMAKE_SOURCE_DIR}/include/3rdparty/turbojpeg/lib/Linux/aarch64)
-set(TURBOJPEG_LIB ${TURBOJPEG_PATH}/libturbojpeg.a)
+# set(TURBOJPEG_PATH ${CMAKE_SOURCE_DIR}/include/3rdparty/turbojpeg/lib/Linux/aarch64)
+# set(TURBOJPEG_LIB ${TURBOJPEG_PATH}/libturbojpeg.a)
+
 
 # include_directories(${RKNN_API_PATH}/include)
 include_directories(${CMAKE_SOURCE_DIR}/include/3rdparty)
@@ -84,10 +87,13 @@ include_directories(${RGA_PATH}/include)
 # opencv
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
   find_package(OpenCV REQUIRED)
+  find_package(TurboJPEG REQUIRED)
 else()
   message(STATUS "OECORE_TARGET_SYSROOT: ${OECORE_TARGET_SYSROOT}")
   include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
   include_directories(${OECORE_TARGET_SYSROOT}/usr/include/opencv4)
+  include_directories(${OECORE_TARGET_SYSROOT}/usr/include/rga)
+  include_directories(${OECORE_TARGET_SYSROOT}/usr/include/turbojpeg)
 endif()
 
 set(CMAKE_INSTALL_RPATH "lib")
@@ -130,6 +136,7 @@ if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_ximgproc.so
     ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_xphoto.so
   )
+  set(TURBOJPEG_LIB ${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libturbojpeg.so)
 endif()
 
 set(CMAKE_INSTALL_RPATH "lib")
@@ -159,7 +166,7 @@ target_link_libraries(attention_demo
 add_custom_command(TARGET attention_demo POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy ${RKNN_RT_LIB} $<TARGET_FILE_DIR:attention_demo>
   COMMAND ${CMAKE_COMMAND} -E copy ${RGA_LIB} $<TARGET_FILE_DIR:attention_demo>
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/install/model $<TARGET_FILE_DIR:attention_demo>/model
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/model $<TARGET_FILE_DIR:attention_demo>/model
 )
 
 # install target and libraries
@@ -167,3 +174,5 @@ set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/)
 install(TARGETS attention_demo DESTINATION ./)
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)
+install(PROGRAMS ${TURBOJPEG_LIB} DESTINATION lib)
+install(PROGRAMS ${OpenCV_LIBS} DESTINATION lib)

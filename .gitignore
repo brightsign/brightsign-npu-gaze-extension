@@ -1,6 +1,9 @@
 toolkit/
 build/
 install/
+model/
 sdk/
+brightsign-oe/
 brightsign-x86_64*.sh
 gaze-demo*.zip
+brightsign-*-src-*.tar.gz
