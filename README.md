@@ -107,7 +107,49 @@ cd -
 
 Building any executable requires access to correct versions of headers and libraries that are compatible with the target run-time environment. For Yocto-derived projects like BSOS, the build process for the OS also creates an SDK/toolchain package that can be used to cross-compile projects for the target player.
 
-Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
+**_[DEPRECATED - Build from public source]_** Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
+
+**Build a custom SDK from public source**
+
+The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/space/DOC/2378039297/BrightSign+Open+Source+Resources) page.  Set the environment variable in the next code block to the desired os release version.
+
+```sh
+# Download BrightSign OS and extract
+cd "${project_root:-.}"
+
+export BRIGHTSIGN_OS_MAJOR_VERION=9.0
+export BRIGHTSIGN_OS_MINOR_VERION=189
+export BRIGHTSIGN_OS_VERSION=${BRIGHTSIGN_OS_MAJOR_VERION}.${BRIGHTSIGN_OS_MINOR_VERION}
+
+wget https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz
+wget https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
+
+tar -xzf brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz
+tar -xzf brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
+
+# Patch BrightSign OS with some special recipes for the SDK
+# Apply custom recipes to BrightSign OS source
+rsync -av bsoe-recipes/ brightsign-oe/ 
+
+# clean up disk space
+rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz
+rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
+
+```
+
+```sh
+# Build the SDK
+cd "${project_root:-.}/brightsign-oe/build"
+
+MACHINE=cobra ./bsbb brightsign-sdk
+
+# move the SDK to the project root
+mv tmp-glibc/deploy/sdk/*.sh ../../
+
+# clean up disk space
+cd ../..
+rm -rf brightsign-oe
+```
 
 **INSTALL INTO `./sdk`**
 
@@ -116,8 +158,16 @@ You can access the SDK from BrightSign.  The SDK is a shell script that will ins
 ```sh
 cd "${project_root:-.}"
 
-sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh
+sh "brightsign-x86_64-cobra-toolchain-*.sh"
 # answer the questions, use `./sdk` for the installation directory
+```
+
+Patch the SDK to include the Rockchip binary libraries that are closed source
+
+```sh
+cd "${project_root:-.}"/sdk/sysroots/aarch64-oe-linux/usr/lib
+
+wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.2/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so
 ```
 
 ### Unsecure the Player and update OS
@@ -125,7 +175,6 @@ sh brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
 0. Power off the player
-
 1. __Enable serial control__ | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the __`SVC`__ button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
 
 ```bash
@@ -188,8 +237,12 @@ docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
     -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3588 i8 ../model/RK3588/RetinaFace.rknn"
 
 # move the generated model to the right place
-mkdir -p ../../install/model/RK3588
-cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
+# mkdir -p ../../install/model/RK3588
+# cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
+
+mkdir -p ../../model/RK3588
+cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../model/RK3588/
+
 ```
 
 **The necessary binaries (model, libraries) are now in the `install` directory of the project**
@@ -197,6 +250,8 @@ cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
 ## (Optional) Step 2 - Build and test on Orange Pi
 
 _this section under development_
+
+TODO: refine build to use libraries provided by SDK to cross-build
 
 While not strictly required, it can be handy to move the project to an OrangePi (OPi) as this facilitates a more responsive build and debug process due to a fully linux distribution and native compiler. Consult the [Orange Pi Wiki](http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_5_Plus) for more information.
 
@@ -267,6 +322,10 @@ _Ensure you have installed the SDK in `${project_root}/sdk` as described in Step
 
 The setup script `environment-setup-aarch64-oe-linux` will set appropriate paths for the toolchain and files. This script must be `source`d in every new shell.
 
+**_[DEPRECATED -- USE A CUSTOM SDK]_**  [CMake](https://cmake.org/) is needed to build OpenCV
+
+### Build the app
+
 ```sh
 cd "${project_root:-.}"
 
@@ -277,8 +336,11 @@ source ./sdk/environment-setup-aarch64-oe-linux
 
 mkdir -p build && cd $_
 
-cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588"
+cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588" 
+  # -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 make
+
+#rm -rf ../install
 make install
 ```
 
@@ -319,11 +381,8 @@ rm -rf ext_npu_gaze*
 
 ### for development
 
-
-* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the **SD** tab of DWS or other means.
-
+* Transfer the files `ext_npu_gaze-*.zip` to an unsecured player with the _Browse_ and _Upload_ buttons from the __SD__ tab of DWS or other means.
 * Connect to the player via ssh, telnet, or serial.
-
 * Type Ctl-C to drop into the BrightScript Debugger, then type `exit` to the BrightSign prompt and `exit` again to get to the linux command prompt.
 
 At the command prompt, **install** the extension with:
@@ -349,5 +408,4 @@ The gaze demo application will start automatically on boot (see `bsext_init` and
 _this section under development_
 
 * Submit the extension to BrightSign for signing
-
 * the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
