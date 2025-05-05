@@ -1,0 +1,52 @@
+# BrightSign-Only Source License v1.0
+
+**Copyright 2025 - BrightSign LLC**
+
+Licensed only under the terms of this BrightSign-Only Source License (the “License”); you may not use the soucre code or software in this distrthis except in compliance with the License. 
+
+## 1. Definitions
+
+**"You" (or "Your")** means an individual or legal entity exercising rights under this License.  
+**"BrightSign Device"** means a hardware media player manufactured by **BrightSign LLC**, including its official development kits and future emulation tools.
+
+## 2. License Grant
+
+Subject to the terms and conditions of this License, Licensor hereby grants You a **worldwide, royalty-free, non-exclusive license**, solely to:
+- use, reproduce, display, perform, modify, and distribute the Software;
+- create Derivative Works of the Software;
+
+**only when the resulting software is executed on a BrightSign Device.**
+
+## 3. Conditions
+
+You must comply with the following conditions:
+- You may not use the Software or Derivative Works on any device other than a BrightSign Device.
+- You must include a copy of this License in any distribution of the Software or Derivative Works.
+- You must state any material modifications made to the Software in a NOTICE file or similar mechanism.
+
+## 4. Restrictions
+
+Except as expressly permitted under Section 2, You may not:
+- sublicense the Software for use on non-BrightSign devices;
+- use the Software for purposes of developing products that are not intended to run exclusively on BrightSign Devices;
+- remove or alter any copyright, license, or legal notices contained in the Software.
+
+## 5. Disclaimer of Warranty
+
+Unless required by applicable law or agreed to in writing, Licensor provides the Software “AS IS,” without warranties or conditions of any kind, either express or implied, including, without limitation, warranties of merchantability, fitness for a particular purpose, or non-infringement.
+
+## 6. Limitation of Liability
+
+In no event shall the Licensor be liable for any damages arising from the use of the Software, even if advised of the possibility of such damages.
+
+## 7. Termination
+
+This License shall terminate automatically if You breach any of its terms. Upon termination, You must cease use and destroy all copies of the Software.
+
+---
+
+### Notes:
+- This is legally restrictive and **not OSI-compliant**.
+- It is modeled structurally on Apache 2.0 but adds a **“field of use”** restriction.
+- You should consult a legal professional before using this license in production or commercial settings.
+
