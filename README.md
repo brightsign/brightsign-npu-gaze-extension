@@ -111,12 +111,6 @@ cd -
 
 4. Install the BSOS SDK
 
-(*Required** to build binaries that will execute properly on the target XT5 player. Contact BrightSign if you do not have an appropriate SDK.)
-
-Building any executable requires access to correct versions of headers and libraries that are compatible with the target run-time environment. For Yocto-derived projects like BSOS, the build process for the OS also creates an SDK/toolchain package that can be used to cross-compile projects for the target player.
-
-___[DEPRECATED - Build from public source]___ Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
-
 **Build a custom SDK from public source**
 
 The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/space/DOC/2378039297/BrightSign+Open+Source+Resources) page.  Set the environment variable in the next code block to the desired os release version.
