@@ -44,6 +44,14 @@ This project will create an installable BrightSign Extension that
 | `faces_attending` | the number of faces in the current frame that are estimated to be paying attention to the screen |
 | `timestamp` | time of message |
 
+```bash
+# sample message 
+
+# socat -u UDP-LISTEN:5002 -
+{"faces_attending":1,"faces_in_frame_total":1,"timestamp":1746732408}
+{"faces_attending":0,"faces_in_frame_total":0,"timestamp":1746732409}
+```
+
 The use of UDP for prediction output is for simplicity when integrating with BrightSign presentations that can easily read from this source.
 
 ## Project Overview & Requirements
@@ -107,7 +115,7 @@ cd -
 
 Building any executable requires access to correct versions of headers and libraries that are compatible with the target run-time environment. For Yocto-derived projects like BSOS, the build process for the OS also creates an SDK/toolchain package that can be used to cross-compile projects for the target player.
 
-**_[DEPRECATED - Build from public source]_** Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
+___[DEPRECATED - Build from public source]___ Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
 
 **Build a custom SDK from public source**
 
@@ -158,8 +166,8 @@ You can access the SDK from BrightSign.  The SDK is a shell script that will ins
 ```sh
 cd "${project_root:-.}"
 
-sh "brightsign-x86_64-cobra-toolchain-*.sh"
-# answer the questions, use `./sdk` for the installation directory
+./brightsign-x86_64-cobra-toolchain-9.0.189.sh  -d ./sdk -y
+# installs the sdk to ./sdk
 ```
 
 Patch the SDK to include the Rockchip binary libraries that are closed source
@@ -170,7 +178,7 @@ cd "${project_root:-.}"/sdk/sysroots/aarch64-oe-linux/usr/lib
 wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.2/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so
 ```
 
-### Unsecure the Player and update OS
+### Unsecure the Player
 
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
@@ -193,12 +201,6 @@ wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.2/rknpu2/runtime/Linu
 Verify that `SECURE_CHECKS` is set to 0. And type `reboot`.
 
 **The player is now unsecured.**
-
-3. Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
-4. Use DWS __SD__ tab to _Browse_ and _Upload_ the OS update to the player. From the __Control__ tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
-
-Verify the OS was updated on the __Info__ tab of DWS where the `BrightSign OS Version` should be listed as
-`9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
 
 ## Step 1 - Compile ONNX Models for the Rockchip NPU
 
@@ -321,8 +323,6 @@ The BrightSign SDK for the specific BSOS version must be used on an x86 host to 
 _Ensure you have installed the SDK in `${project_root}/sdk` as described in Step 0 - Setup._
 
 The setup script `environment-setup-aarch64-oe-linux` will set appropriate paths for the toolchain and files. This script must be `source`d in every new shell.
-
-**_[DEPRECATED -- USE A CUSTOM SDK]_**  [CMake](https://cmake.org/) is needed to build OpenCV
 
 ### Build the app
 
