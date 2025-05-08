@@ -52,6 +52,17 @@ This project will create an installable BrightSign Extension that
 {"faces_attending":0,"faces_in_frame_total":0,"timestamp":1746732409}
 ```
 
+7. Publish a Brightscript variable format message on port `:5000`
+
+```bash
+# sample message
+
+# socat -u UDP-LISTEN:5000 -
+faces_attending:1!!faces_in_frame_total:1!!timestamp:1746732408
+faces_attending:0!!faces_in_frame_total:0!!timestamp:1746732409
+
+```
+
 The use of UDP for prediction output is for simplicity when integrating with BrightSign presentations that can easily read from this source.
 
 ## Project Overview & Requirements
@@ -331,7 +342,6 @@ source ./sdk/environment-setup-aarch64-oe-linux
 mkdir -p build && cd $_
 
 cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588" 
-  # -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 make
 
 #rm -rf ../install
@@ -357,8 +367,10 @@ Copy the extension scripts to the install dir
 ```sh
 cd "${project_root:-.}"
 
-cp start-ext.sh install/
-cp bsext_init install/
+cp start-ext.sh install/ && chmod +x install/start-ext.sh
+cp bsext_init install/ && chmod +x install/bsext_init
+
+cp -rf model install/
 ```
 
 Run the make extension script on the install dir
