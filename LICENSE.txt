@@ -2,7 +2,7 @@
 
 **Copyright 2025 - BrightSign LLC**
 
-Licensed only under the terms of this BrightSign-Only Source License (the “License”); you may not use the soucre code or software in this distrthis except in compliance with the License. 
+Licensed only under the terms of this BrightSign-Only Source License (the “License”); you may not use the source code or software in this distribution except in compliance with the License. 
 
 ## 1. Definitions
 
