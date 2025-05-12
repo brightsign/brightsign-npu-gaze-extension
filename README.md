@@ -414,6 +414,10 @@ cd /storage/sd
 unzip ext_npu_gaze-*.zip
 # you may need to answer prompts to overwrite old files
 
+# if necessary, STOP the previous running extension
+#/var/volatile/bsext/ext_npu_gaze/bsext_init stop
+# make sure all processes are stopped
+
 # install the extension
 bash ./ext_npu_gaze_install-lvm.sh
 
