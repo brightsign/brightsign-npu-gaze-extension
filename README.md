@@ -65,6 +65,21 @@ faces_attending:0!!faces_in_frame_total:0!!timestamp:1746732409
 
 The use of UDP for prediction output is for simplicity when integrating with BrightSign presentations that can easily read from this source.
 
+### Extension Control
+
+This extension allows two, optional registry keys to be set to 
+
+* Disable the auto-start of the extension -- this can be useful in debugging or other problems
+
+* Set the `v4l` device filename to override the auto-discovered device
+
+**Registry keys are organized in the `extension` section**
+
+| Registry Key | Values | Effect |
+| --- | --- | --- |
+| `bsext-gaze-disable-auto-start` | `true` or `false` | when truthy, disables the extension from autostart (`bsext_init start` will simply return). The extension can still be manually run with `bsext_init run` |
+| `bsext-gaze-video-device` | a valid v4l device file name like `/dev/video0` or `/dev/video1` | normally not needed, but may be useful to override for some unusual or test condition |
+
 ## Project Overview & Requirements
 
 This repository describes building the project in these major steps:
@@ -367,7 +382,6 @@ Copy the extension scripts to the install dir
 ```sh
 cd "${project_root:-.}"
 
-cp start-ext.sh install/ && chmod +x install/start-ext.sh
 cp bsext_init install/ && chmod +x install/bsext_init
 
 cp -rf model install/
@@ -378,7 +392,7 @@ Run the make extension script on the install dir
 ```sh
 cd "${project_root:-.}"/install
 
-../sh/make-example-extension-lvm
+../sh/make-extension-lvm
 # zip for convenience to transfer to player
 zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
 # clean up
@@ -400,6 +414,10 @@ cd /storage/sd
 unzip ext_npu_gaze-*.zip
 # you may need to answer prompts to overwrite old files
 
+# if necessary, STOP the previous running extension
+#/var/volatile/bsext/ext_npu_gaze/bsext_init stop
+# make sure all processes are stopped
+
 # install the extension
 bash ./ext_npu_gaze_install-lvm.sh
 
@@ -415,3 +433,38 @@ _this section under development_
 
 * Submit the extension to BrightSign for signing
 * the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
+
+## Removing the Extension
+
+To remove the extension, you can perform a Factory Reset.  Or, remove the extension manually.
+
+1. Connect to the player over SSH and drop to the Linux shell.
+
+2. STOP the extension -- e.g. `/var/volatile/bsext/ext_npu_gaze/bsext_init stop`
+
+3. VERIFY all the processes for your extension have stopped.
+
+4. Unmount the extension filesystem and remove it from BOTH the `/var/volatile` filesystem AND the `/dev/mapper` filesystem.
+
+Following the outline given by the `make-extension` script.
+
+```bash
+# EXAMPLE USAGE
+
+# stop the extension
+/var/volatile/bsext/ext_npu_gaze/bsext_init stop
+
+# check that all the processes are stopped
+# ps | grep bsext_npu_gaze
+
+# unmount the extension
+umount /var/volatile/bsext/ext_npu_gaze
+# remove the extension
+rm -rf /var/volatile/bsext/ext_npu_gaze
+
+# remove the extension from the system
+lvremove --yes /dev/mapper/bsext_npu_gaze
+rm -rf /dev/mapper/bsext_npu_gaze
+
+reboot
+```
