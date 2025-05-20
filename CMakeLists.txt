@@ -172,7 +172,34 @@ add_custom_command(TARGET attention_demo POST_BUILD
 # install target and libraries
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/)
 install(TARGETS attention_demo DESTINATION ./)
-install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
-install(PROGRAMS ${RGA_LIB} DESTINATION lib)
-install(PROGRAMS ${TURBOJPEG_LIB} DESTINATION lib)
-install(PROGRAMS ${OpenCV_LIBS} DESTINATION lib)
+
+# Use FILE(COPY) which preserves the actual files rather than symlinks
+install(CODE "
+    # Create lib directory if it doesn't exist
+    file(MAKE_DIRECTORY \${CMAKE_INSTALL_PREFIX}/lib)
+    
+    # Copy RKNN runtime library
+    execute_process(COMMAND cp -L ${RKNN_RT_LIB} \${CMAKE_INSTALL_PREFIX}/lib/)
+    
+    # Copy RGA library and its versioned counterparts
+    execute_process(
+        COMMAND bash -c \"find $(dirname ${RGA_LIB}) -name 'librga.so*' -type f -o -type l | xargs -I{} cp -L {} \${CMAKE_INSTALL_PREFIX}/lib/\"
+    )
+    
+    # Copy TurboJPEG library and its versioned counterparts
+    execute_process(
+        COMMAND bash -c \"find $(dirname ${TURBOJPEG_LIB}) -name 'libturbojpeg.so*' -type f -o -type l | xargs -I{} cp -L {} \${CMAKE_INSTALL_PREFIX}/lib/\"
+    )
+    
+    # Copy OpenCV libraries
+    file(GLOB OPENCV_LIB_FILES \"${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libopencv_*.so*\")
+    foreach(lib \${OPENCV_LIB_FILES})
+        execute_process(COMMAND cp -L \${lib} \${CMAKE_INSTALL_PREFIX}/lib/)
+    endforeach()
+
+    # Copy tbb libraries
+    file(GLOB TBB_LIB_FILES \"${OECORE_TARGET_SYSROOT_ABS}/usr/lib/libtbb*.so*\")
+    foreach(lib \${TBB_LIB_FILES})
+        execute_process(COMMAND cp -L \${lib} \${CMAKE_INSTALL_PREFIX}/lib/)
+    endforeach()
+")

@@ -1,38 +1,60 @@
-#ifndef PUBLISHER_H
-#define PUBLISHER_H
+#pragma once
 
-#include <arpa/inet.h>
-#include <atomic>
-#include <cstring>
-#include <stdexcept>
 #include <string>
+#include <atomic>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
-#include "queue.h"
-#include "inference.h"
 #include <nlohmann/json.hpp>
+
+// #include "thread_safe_queue.h"
+#include "inference.h"
 
 using json = nlohmann::json;
 
-class UDPPublisher {
-private:
-    ThreadSafeQueue<InferenceResult>& resultQueue;
-    std::atomic<bool>& running;
-    int sockfd;
-    struct sockaddr_in servaddr;
-    int target_mps;            // messages per second
-
-    void setupSocket(const std::string& ip, const int port);
-    json formatMessage(const InferenceResult& result);
-
+// Abstract message formatter interface
+class MessageFormatter {
 public:
-    UDPPublisher(
-            const std::string& dest_ip,
-            const int dest_port,
-            ThreadSafeQueue<InferenceResult>& queue, 
-            std::atomic<bool>& isRunning,
-            int updates_per_second);
-    ~UDPPublisher();
-    void operator()();
+    virtual ~MessageFormatter() = default;
+    virtual std::string formatMessage(const InferenceResult& result) = 0;
 };
 
-#endif // PUBLISHER_H
+// Concrete implementation of MessageFormatter for JSON format
+class JsonMessageFormatter : public MessageFormatter {
+public:
+    std::string formatMessage(const InferenceResult& result) override;
+};
+
+// Concrete implementation of MessageFormatter for BrightScript variable format
+//  e.g. "faces_attending:0!!faces_in_frame_total:0!!timestamp:1746732409"
+class BSVariableMessageFormatter : public MessageFormatter {
+public:
+    std::string formatMessage(const InferenceResult& result) override;
+};
+
+
+class UDPPublisher {
+public:
+    UDPPublisher(
+        const std::string& ip,
+        const int port,
+        ThreadSafeQueue<InferenceResult>& queue,
+        std::atomic<bool>& isRunning,
+        std::shared_ptr<MessageFormatter> formatter,
+        int messages_per_second = 1);
+    
+    ~UDPPublisher();
+    
+    void operator()();
+
+private:
+    void setupSocket(const std::string& ip, const int port);
+    
+    int sockfd;
+    struct sockaddr_in servaddr;
+    ThreadSafeQueue<InferenceResult>& resultQueue;
+    std::atomic<bool>& running;
+    int target_mps;
+    std::shared_ptr<MessageFormatter> formatter;
+};

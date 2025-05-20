@@ -43,7 +43,41 @@ This project will create an installable BrightSign Extension that
 | `faces_attending` | the number of faces in the current frame that are estimated to be paying attention to the screen |
 | `timestamp` | time of message |
 
+```bash
+# sample message 
+
+# socat -u UDP-LISTEN:5002 -
+{"faces_attending":1,"faces_in_frame_total":1,"timestamp":1746732408}
+{"faces_attending":0,"faces_in_frame_total":0,"timestamp":1746732409}
+```
+
+7. Publish a Brightscript variable format message on port `:5000`
+
+```bash
+# sample message
+
+# socat -u UDP-LISTEN:5000 -
+faces_attending:1!!faces_in_frame_total:1!!timestamp:1746732408
+faces_attending:0!!faces_in_frame_total:0!!timestamp:1746732409
+
+```
+
 The use of UDP for prediction output is for simplicity when integrating with BrightSign presentations that can easily read from this source.
+
+### Extension Control
+
+This extension allows two, optional registry keys to be set to 
+
+* Disable the auto-start of the extension -- this can be useful in debugging or other problems
+
+* Set the `v4l` device filename to override the auto-discovered device
+
+**Registry keys are organized in the `extension` section**
+
+| Registry Key | Values | Effect |
+| --- | --- | --- |
+| `bsext-gaze-disable-auto-start` | `true` or `false` | when truthy, disables the extension from autostart (`bsext_init start` will simply return). The extension can still be manually run with `bsext_init run` |
+| `bsext-gaze-video-device` | a valid v4l device file name like `/dev/video0` or `/dev/video1` | normally not needed, but may be useful to override for some unusual or test condition |
 
 ## Project Overview & Requirements
 
@@ -102,12 +136,6 @@ cd -
 
 4. Install the BSOS SDK
 
-(*Required** to build binaries that will execute properly on the target XT5 player. Contact BrightSign if you do not have an appropriate SDK.)
-
-Building any executable requires access to correct versions of headers and libraries that are compatible with the target run-time environment. For Yocto-derived projects like BSOS, the build process for the OS also creates an SDK/toolchain package that can be used to cross-compile projects for the target player.
-
-**_[DEPRECATED - Build from public source]_** Download the [SDK version that matches the pre-release OS with OpenCV Support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/brightsign-x86_64-cobra-toolchain-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324.sh?csf=1&web=1&e=Vbr9bx)
-
 **Build a custom SDK from public source**
 
 The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/space/DOC/2378039297/BrightSign+Open+Source+Resources) page.  Set the environment variable in the next code block to the desired os release version.
@@ -157,8 +185,8 @@ You can access the SDK from BrightSign.  The SDK is a shell script that will ins
 ```sh
 cd "${project_root:-.}"
 
-sh "brightsign-x86_64-cobra-toolchain-*.sh"
-# answer the questions, use `./sdk` for the installation directory
+./brightsign-x86_64-cobra-toolchain-9.0.189.sh  -d ./sdk -y
+# installs the sdk to ./sdk
 ```
 
 Patch the SDK to include the Rockchip binary libraries that are closed source
@@ -169,7 +197,7 @@ cd "${project_root:-.}"/sdk/sysroots/aarch64-oe-linux/usr/lib
 wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.2/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so
 ```
 
-### Unsecure the Player and update OS
+### Unsecure the Player
 
 * Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
 
@@ -192,12 +220,6 @@ wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.2/rknpu2/runtime/Linu
 Verify that `SECURE_CHECKS` is set to 0. And type `reboot`.
 
 **The player is now unsecured.**
-
-3. Download a [pre-released OS version with OpenCV support](https://brightsigninfo-my.sharepoint.com/:u:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi/cobra-9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe-update.bsfw?csf=1&web=1&e=QVFKbZ).
-4. Use DWS __SD__ tab to _Browse_ and _Upload_ the OS update to the player. From the __Control__ tab, press the _Reboot_ button.  The player will automatically update the OS on reboot.
-
-Verify the OS was updated on the __Info__ tab of DWS where the `BrightSign OS Version` should be listed as
-`9.1.22.2-unreleased-opencv-for-gaze-demo-20250324-debug_sfrancis-bsoe`
 
 ## Step 1 - Compile ONNX Models for the Rockchip NPU
 
@@ -321,8 +343,6 @@ _Ensure you have installed the SDK in `${project_root}/sdk` as described in Step
 
 The setup script `environment-setup-aarch64-oe-linux` will set appropriate paths for the toolchain and files. This script must be `source`d in every new shell.
 
-**_[DEPRECATED -- USE A CUSTOM SDK]_**  [CMake](https://cmake.org/) is needed to build OpenCV
-
 ### Build the app
 
 ```sh
@@ -336,7 +356,6 @@ source ./sdk/environment-setup-aarch64-oe-linux
 mkdir -p build && cd $_
 
 cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588" 
-  # -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 make
 
 #rm -rf ../install
@@ -362,8 +381,9 @@ Copy the extension scripts to the install dir
 ```sh
 cd "${project_root:-.}"
 
-cp start-ext.sh install/
-cp bsext_init install/
+cp bsext_init install/ && chmod +x install/bsext_init
+
+cp -rf model install/
 ```
 
 Run the make extension script on the install dir
@@ -371,7 +391,7 @@ Run the make extension script on the install dir
 ```sh
 cd "${project_root:-.}"/install
 
-../sh/make-example-extension-lvm
+../sh/make-extension-lvm
 # zip for convenience to transfer to player
 zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
 # clean up
@@ -393,6 +413,10 @@ cd /storage/sd
 unzip ext_npu_gaze-*.zip
 # you may need to answer prompts to overwrite old files
 
+# if necessary, STOP the previous running extension
+#/var/volatile/bsext/ext_npu_gaze/bsext_init stop
+# make sure all processes are stopped
+
 # install the extension
 bash ./ext_npu_gaze_install-lvm.sh
 
@@ -407,7 +431,6 @@ The gaze demo application will start automatically on boot (see `bsext_init` and
 _this section under development_
 
 * Submit the extension to BrightSign for signing
-* The signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS
 * Contact BrightSign 
 
 ## Licensing
@@ -415,3 +438,40 @@ _this section under development_
 This project is released under the terms of the [Apache 2.0 License](./LICENSE.txt).  Any model used in a BSMP must adhere to the license terms for that model.  This is discussed in more detail [here](./model-licenses.md).
 
 Components that are part of this project are licensed seperately under their own open source licenses.
+
+* the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
+
+## Removing the Extension
+
+To remove the extension, you can perform a Factory Reset.  Or, remove the extension manually.
+
+1. Connect to the player over SSH and drop to the Linux shell.
+
+2. STOP the extension -- e.g. `/var/volatile/bsext/ext_npu_gaze/bsext_init stop`
+
+3. VERIFY all the processes for your extension have stopped.
+
+4. Unmount the extension filesystem and remove it from BOTH the `/var/volatile` filesystem AND the `/dev/mapper` filesystem.
+
+Following the outline given by the `make-extension` script.
+
+```bash
+# EXAMPLE USAGE
+
+# stop the extension
+/var/volatile/bsext/ext_npu_gaze/bsext_init stop
+
+# check that all the processes are stopped
+# ps | grep bsext_npu_gaze
+
+# unmount the extension
+umount /var/volatile/bsext/ext_npu_gaze
+# remove the extension
+rm -rf /var/volatile/bsext/ext_npu_gaze
+
+# remove the extension from the system
+lvremove --yes /dev/mapper/bsext_npu_gaze
+rm -rf /dev/mapper/bsext_npu_gaze
+
+reboot
+```

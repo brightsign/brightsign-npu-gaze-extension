@@ -12,14 +12,81 @@
 # Source function library if it exists
 [ -f /etc/init.d/functions ] && . /etc/init.d/functions
 
-SCRIPT_NAME=start-ext.sh
 SCRIPT_PATH=$(dirname $(realpath $0))
 DAEMON_NAME="bsext-gaze"
 PIDFILE="/var/run/${DAEMON_NAME}.pid"
 
-do_start() {
+# defaults -- these can be overridden by the registry
+DISABLE_AUTO_START=false
+VID_DEVID=/dev/video1
+
+# Common setup function to determine SOC model and video device
+get_runtime_args() {    
+    # figure out the SOC model -- default to RK3588
+    SOC_MODEL=RK3588
+    if [ -f /sys/firmware/devicetree/base/compatible ]; then
+        # Use strings command to handle null bytes in devicetree properly
+        COMPATIBLE=$(strings /sys/firmware/devicetree/base/compatible)
+        
+        # Look for rockchip,rk3588 pattern in the compatible string
+        if echo "$COMPATIBLE" | grep -q "rockchip,rk3588"; then
+            SOC_MODEL="RK3588"
+        fi
+    else
+        echo "WARNING: Unable to determine SOC model, EXITING"
+        exit 1
+    fi
+
+    VID_DEVID=/dev/video0
+    if [ "${SOC_MODEL}" = "RK3588" ]; then
+        VID_DEVID=/dev/video1
+    fi
+    # check registry for video device
+    reg_video_device=$(registry extension ${DAEMON_NAME}-video-device)
+    if [ -n "${reg_video_device}" ]; then
+        VID_DEVID=${reg_video_device}
+    fi
+   
+    # Return the command arguments
+    echo "model/${SOC_MODEL}/RetinaFace.rknn ${VID_DEVID}"
+}
+
+# Common function to run the attention demo
+run_attention_demo() {
+    # Get command arguments from setup function
+    CMD_ARGS=$(get_runtime_args)
+    echo "Using Model and Device: ${CMD_ARGS}"
+
     cd ${SCRIPT_PATH}
-    start-stop-daemon --start --background --make-pidfile --pidfile ${PIDFILE} --exec $0 -- run
+    
+    # Default to running in foreground
+    local background=$1
+    
+    export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
+    if [ "$background" = "true" ]; then
+        # Run as a daemon in the background
+        start-stop-daemon --start --background --make-pidfile --pidfile ${PIDFILE} \
+                          --exec ${SCRIPT_PATH}/attention_demo -- ${CMD_ARGS}
+    else
+        # Run directly in foreground
+        ${SCRIPT_PATH}/attention_demo ${CMD_ARGS}
+    fi
+}
+
+do_start() {
+    # check registry for auto-start
+    reg_disable_auto_start=$(registry extension ${DAEMON_NAME}-disable-auto-start)
+    if [ -n "${reg_disable_auto_start}" ]; then
+        DISABLE_AUTO_START=${reg_disable_auto_start}
+    fi
+
+    if [ "${DISABLE_AUTO_START}" = "true" ]; then
+        echo "Auto-start is disabled for ${DAEMON_NAME}"
+        return
+    fi
+
+    # Start the attention_demo process as a daemon
+    run_attention_demo true
 }
 
 do_stop() {
@@ -42,24 +109,9 @@ case "$1" in
         do_start
         ;;
     run)
-        # figure out the SOC model -- default to RK3588
-        SOC_MODEL=RK3588
-        if [ -f /sys/firmware/devicetree/base/compatible ]; then
-            SOC_MODEL=$(cat /sys/firmware/devicetree/base/compatible | cut -d',' -f5 | tr '[:lower:]' '[:upper:]')
-        else
-            echo "WARNING: Unable to determine SOC model, EXITING"
-            exit 1
-        fi
-        echo "SOC_MODEL: ${SOC_MODEL}"
-
-        VID_DEVID=/dev/video0
-        if [ "${SOC_MODEL}" = "RK3588" ]; then
-            VID_DEVID=/dev/video1
-        fi
-
-        export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
-        # run it
-        ./attention_demo model/${SOC_MODEL}/RetinaFace.rknn ${VID_DEVID}
+        echo "Running ${DAEMON_NAME} in foreground"
+        # Run directly in foreground (not as daemon)
+        run_attention_demo false
         ;;
     *)
         echo "Usage: $0 {start|stop|restart|run}"

@@ -51,16 +51,28 @@ int main(int argc, char **argv) {
         resultQueue, 
         running,
         30);
-    const std::string dest_ip = "127.0.0.1";
-    UDPPublisher publisher(
-        dest_ip,
+
+    auto json_formatter = std::make_shared<JsonMessageFormatter>();
+    UDPPublisher json_publisher(
+        "127.0.0.1",
         5002,
         resultQueue, 
         running,
-        1);
+        json_formatter,
+        10);
+
+    auto bsvar_formatter = std::make_shared<BSVariableMessageFormatter>();
+    UDPPublisher bsvar_publisher(
+        "127.0.0.1",
+        5000,
+        resultQueue, 
+        running,
+        bsvar_formatter,
+        10);        
 
     std::thread inferenceThread(std::ref(mlThread));
-    std::thread publisherThread(std::ref(publisher));
+    std::thread json_publisherThread(std::ref(json_publisher));
+    std::thread bsvar_publisherThread(std::ref(bsvar_publisher));
 
     while (running) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -71,7 +83,8 @@ int main(int argc, char **argv) {
     resultQueue.signalShutdown();
 
     inferenceThread.join();
-    publisherThread.join();
+    json_publisherThread.join();
+    bsvar_publisherThread.join();
 
     return 0;
 }
