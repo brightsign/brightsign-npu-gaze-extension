@@ -1,15 +1,14 @@
 # BrightSign NPU Gaze Extension
 
-___STATUS___: In development.
+This is an example BrightSign Model Package (BSMP) that implements Gaze Detection on the BrightSign player NPU.  This can be used as a template for development of other BSMP by partners and third-parties.
 
-| Step | Status |
-| --- | --- |
-| Model compilation instructions | validated and tested |
-| Orange Pi development guide | reference build validated and tested |
-| Build for XT5 instructions | validated and tested |
-| Extension Packaging Instructions | validated for development |
+BSMP are delivered as an BrightSign OS (BOS) "extension."  Extensions are delivered as firmware update files that are installed on a reboot.  These are basically Linux squashfs file systems that extend the firmware to include the BSMP.  You can learn more about extensions in our [Extension Template Repository](https://github.com/brightsign/extension-template).
 
-A BrightSign OS (BSOS) Extension for the Gaze Detection demo of the NPU (AI/ML) feature preview.
+## Supported Players
+
+As of May 20,2025 the only players supported is the XT1145 and XT2145.  Support for the LS5 family and Series 6 players will be added shortly.
+
+## Overview
 
 This repository gives the steps and tools to
 
@@ -18,7 +17,7 @@ This repository gives the steps and tools to
 3. Build the AI Application for BrightSign OS
 4. Package the Application and model as a BrightSign Extension
 
-For this exercise, the RetinaFace model from the [Rockchip Model Zoo](https://github.com/airockchip/rknn_model_zoo).  The application code in this repo was adapted from the example code from the Rockchip Model Zoo as well.
+For this exercise, the RetinaFace model from the [Rockchip Model Zoo](https://github.com/airockchip/rknn_model_zoo).  The application code in this repo was adapted from the example code from the Rockchip Model Zoo as well.  Please ensure that you are aware of the license that your chosen model is released under.  More information on model licenses can be seen [here](./model-licenses.md).
 
 ## Application Overview
 
@@ -253,7 +252,7 @@ _this section under development_
 
 TODO: refine build to use libraries provided by SDK to cross-build
 
-While not strictly required, it can be handy to move the project to an OrangePi (OPi) as this facilitates a more responsive build and debug process due to a fully linux distribution and native compiler. Consult the [Orange Pi Wiki](http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_5_Plus) for more information.
+While not required, it can be handy to move the project to an OrangePi (OPi) as this facilitates a more responsive build and debug process due to a fully linux distribution and native compiler. Consult the [Orange Pi Wiki](http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_5_Plus) for more information.
 
 Use of the Debian image from the eMMC is recommended. Common tools like `git`, `gcc` and `cmake` are also needed to build the project. In the interest of brevity, installation instructions for those are not included with this project.
 
@@ -408,4 +407,11 @@ The gaze demo application will start automatically on boot (see `bsext_init` and
 _this section under development_
 
 * Submit the extension to BrightSign for signing
-* the signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS.
+* The signed extension will be packaged as a `.bsfw` file that can be applied to a player running a signed OS
+* Contact BrightSign 
+
+## Licensing
+
+This project is released under the terms of the [Apache 2.0 License](./LICENSE.txt).  Any model used in a BSMP must adhere to the license terms for that model.  This is discussed in more detail [here](./model-licenses.md).
+
+Components that are part of this project are licensed seperately under their own open source licenses.
