@@ -1,8 +1,10 @@
-# Rockchip Model Zoo License Review
+# Rockchip Model Licensing
 
-This analysis of the available models was done on May 19, 2025.  It is the developers responsibility to verify the license of any model chosen.
+Any BrightSign Model Package (BSMP) must include one or more models.  Using any model from the [Rockchip model zoo](https://github.com/airockchip/rknn_model_zoo) "links" that model to the BSMP.  This means that the BSMP must adhere to the license of the model.
 
-Use of any model that is licensed GPL or AGPL is FORBIDDEN under the terms of the license agreement for using this code.
+This review was last updated on May 20, 2025 as a convenience for developers.  
+
+We will try to maintain this document, but **it is the users responsibility to verify this information and adhering to all license terms**.
 
 ## Model Licenses and Key Conditions
 
