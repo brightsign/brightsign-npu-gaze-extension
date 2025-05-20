@@ -424,7 +424,7 @@ bash ./ext_npu_gaze_install-lvm.sh
 reboot
 ```
 
-The gaze demo application will start automatically on boot (see `bsext_init` and `start-ext.sh`).  Files will have been unpacked to `/var/volatile/bsext/ext_npu_gaze`.
+The gaze demo application will start automatically on boot (see `bsext_init`).  Files will have been unpacked to `/var/volatile/bsext/ext_npu_gaze`.
 
 ### for production
 
