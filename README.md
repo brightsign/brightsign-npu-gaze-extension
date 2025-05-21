@@ -1,27 +1,27 @@
 # BrightSign NPU Gaze Extension
 
-This is an example BrightSign Model Package (BSMP) that implements Gaze Detection on the BrightSign player NPU.  This can be used as a template for development of other BSMP by partners and third-parties.
+This is an example BrightSign Model Package (BSMP) that implements Gaze Detection on the BrightSign player NPU. This can be used as a template for development of other BSMP by partners and third-parties.
 
-BSMP are delivered as an BrightSign OS (BOS) "extension."  Extensions are delivered as firmware update files that are installed on a reboot.  These are basically Linux squashfs file systems that extend the firmware to include the BSMP.  You can learn more about extensions in our [Extension Template Repository](https://github.com/brightsign/extension-template).
+BSMP are delivered as an BrightSign OS (BOS) "extension." Extensions are delivered as firmware update files that are installed on a reboot. These are basically Linux squashfs file systems that extend the firmware to include the BSMP. You can learn more about extensions in our [Extension Template Repository](https://github.com/brightsign/extension-template).
 
 ## Supported Players
 
-As of May 20,2025 the only players supported is the XT1145 and XT2145.  Support for the LS5 family and Series 6 players will be added shortly.
+As of May 20, 2025 the only players supported are the XT1145 and XT2145. Support for the LS5 family and Series 6 players will be added shortly.
 
 ## Overview
 
-This repository gives the steps and tools to
+This repository gives the steps and tools to:
 
 1. Compile ONNX formatted models for use on the Rockchip RK3588 SoC -- used in the OrangePi 5 and XT-5 Player.
 2. Develop and test an AI Application to load and run the model on the RK3588.
 3. Build the AI Application for BrightSign OS
 4. Package the Application and model as a BrightSign Extension
 
-For this exercise, the RetinaFace model from the [Rockchip Model Zoo](https://github.com/airockchip/rknn_model_zoo).  The application code in this repo was adapted from the example code from the Rockchip Model Zoo as well.  Please ensure that you are aware of the license that your chosen model is released under.  More information on model licenses can be seen [here](./model-licenses.md).
+For this exercise, the RetinaFace model from the [Rockchip Model Zoo](https://github.com/airockchip/rknn_model_zoo). The application code in this repo was adapted from the example code from the Rockchip Model Zoo as well. Please ensure that you are aware of the license that your chosen model is released under. More information on model licenses can be seen [here](./model-licenses.md).
 
 ## Application Overview
 
-This project will create an installable BrightSign Extension that
+This project will create an installable BrightSign Extension that:
 
 1. Loads the compiled model into the RK3588 NPU
 2. Acquires images from an attached Video for Linux (v4l) device such as a USB webcam (using OpenCV)
@@ -51,7 +51,7 @@ This project will create an installable BrightSign Extension that
 {"faces_attending":0,"faces_in_frame_total":0,"timestamp":1746732409}
 ```
 
-7. Publish a Brightscript variable format message on port `:5000`
+7. Publish a BrightScript variable format message on port `:5000`
 
 ```bash
 # sample message
@@ -92,9 +92,9 @@ __IMPORTANT: THE TOOLCHAIN REFERENCED BY THIS PROJECT REQUIRES A DEVELOPMENT HOS
 
 ### Requirements
 
-1. A series 5 player running an experimental, debug build of BrightSign OS -- signed and unsigned versions
-2. A Development computer with x86_64 instruction architecture to compile the model and cross-compile the executables.
-3. The cross compile toolchain ___matching the BSOS version___ of the player.
+1. A Series 5 player running an experimental, debug build of BrightSign OS -- signed and unsigned versions
+2. A development computer with x86_64 instruction architecture to compile the model and cross-compile the executables
+3. The cross compile toolchain ___matching the BSOS version___ of the player
 4. USB webcam
 
    - Tested to work with Logitech c270
@@ -138,7 +138,7 @@ cd -
 
 **Build a custom SDK from public source**
 
-The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/space/DOC/2378039297/BrightSign+Open+Source+Resources) page.  Set the environment variable in the next code block to the desired os release version.
+The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/space/DOC/2378039297/BrightSign+Open+Source+Resources) page. Set the environment variable in the next code block to the desired OS release version.
 
 ```sh
 # Download BrightSign OS and extract
@@ -158,7 +158,7 @@ tar -xzf brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
 # Apply custom recipes to BrightSign OS source
 rsync -av bsoe-recipes/ brightsign-oe/ 
 
-# clean up disk space
+# Clean up disk space
 rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz
 rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
 
@@ -170,17 +170,17 @@ cd "${project_root:-.}/brightsign-oe/build"
 
 MACHINE=cobra ./bsbb brightsign-sdk
 
-# move the SDK to the project root
+# Move the SDK to the project root
 mv tmp-glibc/deploy/sdk/*.sh ../../
 
-# clean up disk space
+# Clean up disk space
 cd ../..
 rm -rf brightsign-oe
 ```
 
 **INSTALL INTO `./sdk`**
 
-You can access the SDK from BrightSign.  The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice.  This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
+You can access the SDK from BrightSign. The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice. This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
 
 ```sh
 cd "${project_root:-.}"
@@ -199,7 +199,7 @@ wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.2/rknpu2/runtime/Linu
 
 ### Unsecure the Player
 
-* Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player.  This can be done in BrightAuthor:Connected when creating setup files for a new player.
+* Enabling the Diagnostic Web Server (DWS) is recommended as it's a handy way to transfer files and check various things on the player. This can be done in BrightAuthor:connected when creating setup files for a new player.
 
 0. Power off the player
 1. __Enable serial control__ | Connect a serial cable from the player to your development host.  Configure your terminal program for 115200 bps, no parity, 8 data bits, 1 stop bit (n-8-1) and start the terminal program.  Hold the __`SVC`__ button while applying power. _Quick_, like a bunny, type Ctl-C in your serial terminal to get the boot menu -- you have 3 seconds to do this.  type
@@ -225,13 +225,13 @@ Verify that `SECURE_CHECKS` is set to 0. And type `reboot`.
 
 **This step needs only be peformed once or when the model itself changes**
 
-To run common models on the Rockchip NPU, the models must converted, compiled, lowered on to the operational primitives supported by the NPU from the abstract operations of the model frameworkd (e.g TesnsorFlow or PyTorch). Rockchip supplies a model converter/compiler/quantizer, written in python with lots of package dependencies. To simplify and stabilize the process a Dockerfile is provided in the `rknn-toolkit2` project.
+To run common models on the Rockchip NPU, the models must converted, compiled, lowered on to the operational primitives supported by the NPU from the abstract operations of the model frameworkd (e.g TesnsorFlow or PyTorch). Rockchip supplies a model converter/compiler/quantizer, written in Python with lots of package dependencies. To simplify and stabilize the process a Dockerfile is provided in the `rknn-toolkit2` project.
 
 __REQUIRES AN x86_64 INSTRUCTION ARCHITECTURE MACHINE OR VIRTUAL MACHINE__
 
 For portability and repeatability, a Docker container is used to compile the models.
 
-This docker image needs only be built once and can be reused across models
+This Docker image needs only be built once and can be reused across models
 
 ```sh
 cd "${project_root:-.}"/toolkit/rknn-toolkit2/rknn-toolkit2/docker/docker_file/ubuntu_20_04_cp38
@@ -424,7 +424,7 @@ bash ./ext_npu_gaze_install-lvm.sh
 reboot
 ```
 
-The gaze demo application will start automatically on boot (see `bsext_init`).  Files will have been unpacked to `/var/volatile/bsext/ext_npu_gaze`.
+The gaze demo application will start automatically on boot (see `bsext_init`). Files will have been unpacked to `/var/volatile/bsext/ext_npu_gaze`.
 
 ### for production
 
@@ -443,7 +443,7 @@ Components that are part of this project are licensed seperately under their own
 
 ## Removing the Extension
 
-To remove the extension, you can perform a Factory Reset.  Or, remove the extension manually.
+To remove the extension, you can perform a Factory Reset or remove the extension manually.
 
 1. Connect to the player over SSH and drop to the Linux shell.
 
