@@ -93,10 +93,9 @@ The use of UDP for prediction output is for simplicity when integrating with Bri
 
 ### Extension Control
 
-This extension allows two, optional registry keys to be set to 
+This extension allows two, optional registry keys to be set to
 
 * Disable the auto-start of the extension -- this can be useful in debugging or other problems
-
 * Set the `v4l` device filename to override the auto-discovered device
 
 **Registry keys are organized in the `extension` section**
@@ -134,6 +133,17 @@ __IMPORTANT: THE TOOLCHAIN REFERENCED BY THIS PROJECT REQUIRES A DEVELOPMENT HOS
 
 * [Docker](https://docs.docker.com/engine/install/) - it should be possible to use podman or other, but these instructions assume Docker
 * [git](https://git-scm.com/)
+* [cmake](https://cmake.org/download/)
+
+```bash
+# consult Docker installation instructions
+
+# for others, common package managers should work
+# for Ubuntu, Debian, etc.
+sudo apt-get update && sudo apt-get install -y \
+    cmake git
+    
+```
 
 ## Step 0 - Setup
 
@@ -165,7 +175,7 @@ cd -
 
 **Build a custom SDK from public source**
 
-The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/space/DOC/2378039297/BrightSign+Open+Source+Resources) page. Set the environment variable in the next code block to the desired OS release version.
+The platform SDK can be built from public sources. Browse OS releases from the [BrightSign Open Source](https://docs.brightsign.biz/releases/brightsign-open-source) page.  Set the environment variable in the next code block to the desired os release version.
 
 ```sh
 # Download BrightSign OS and extract
@@ -191,23 +201,48 @@ rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
 
 ```
 
+**_IMPORTANT_**: Building an OpenEmbedded project can be very particular in terms of packages and setup. For that reason it **strongly recommended** to use the [Docker build](https://github.com/brightsign/extension-template/blob/main/README.md#recommended-docker) approadh.
+
 ```sh
-# Build the SDK
-cd "${project_root:-.}/brightsign-oe/build"
+# Build the SDK in Docker -- RECOMMENDED
+cd "${project_root:-.}"
+
+wget https://raw.githubusercontent.com/brightsign/extension-template/refs/heads/main/Dockerfile
+docker build --rm --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) --ulimit memlock=-1:-1 -t bsoe-build .
+
+mkdir -p srv
+# the build process puts some output in srv
+
+docker run -it --rm \
+  -v $(pwd)/brightsign-oe:/home/builder/bsoe -v $(pwd)/srv:/srv \
+  bsoe-build
+
+```
+
+Then in the docker container shell
+
+```sh
+cd /home/builder/bsoe/build
 
 MACHINE=cobra ./bsbb brightsign-sdk
-
-# Move the SDK to the project root
-mv tmp-glibc/deploy/sdk/*.sh ../../
-
-# Clean up disk space
-cd ../..
-rm -rf brightsign-oe
+# This will build the entire system and may take up to several hours depending on the speed of your build system.
 ```
+
+Exit the Docker shell with `Ctl-D`
 
 **INSTALL INTO `./sdk`**
 
-You can access the SDK from BrightSign. The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice. This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
+You can access the SDK from BrightSign.  The SDK is a shell script that will install the toolchain and supporting files in a directory of your choice.  This [link](https://brightsigninfo-my.sharepoint.com/:f:/r/personal/gherlein_brightsign_biz/Documents/BrightSign-NPU-Share-Quividi?csf=1&web=1&e=bgt7F7) is limited only to those with permissions to access the SDK.
+
+```sh
+cd "${project_root:-}"
+
+# copy the SDK to the project root
+cp brightsign-oe/build/tmp-glibc/deploy/sdk/brightsign-x86_64-cobra-toolchain-9.0.189.sh ./
+
+# can safely remove the source if you want to save space
+#rm -rf brightsign-oe
+```
 
 ```sh
 cd "${project_root:-.}"
@@ -279,6 +314,7 @@ popd
 Compile the model.  Note the opetion for various SoCs.
 
 ```sh
+# for RK3588 -- XT-5 players
 cd "${project_root:-.}"/toolkit/rknn_model_zoo/
 
 docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
@@ -288,9 +324,24 @@ docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
 # mkdir -p ../../install/model/RK3588
 # cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
 
-mkdir -p ../../model/RK3588
-cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../model/RK3588/
+mkdir -p ../../install/RK3588/model
+cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/RK3588/model/
 
+```
+
+```sh
+# For RK3568 -- LS-5 Players
+
+cd "${project_root:-.}"/toolkit/rknn_model_zoo/
+
+mkdir -p examples/RetinaFace/model/RK3568
+
+docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
+    -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3568 i8 ../model/RK3568/RetinaFace.rknn"
+
+mkdir -p ../../install/RK3568/model
+# cp examples/RetinaFace/model/RK3568/RetinaFace.rknn ../../model/RK3568/
+cp examples/RetinaFace/model/RK3568/RetinaFace.rknn ../../install/RK3568/model/
 ```
 
 **The necessary binaries (model, libraries) are now in the `install` directory of the project**
@@ -373,16 +424,33 @@ The setup script `environment-setup-aarch64-oe-linux` will set appropriate paths
 ### Build the app
 
 ```sh
+### XT-5
 cd "${project_root:-.}"
-
 source ./sdk/environment-setup-aarch64-oe-linux
 
 # this command can be used to clean old builds
-#rm -rf build
+#rm -rf build_xt5
 
-mkdir -p build && cd $_
+mkdir -p build_xt5 && cd $_
 
 cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588" 
+make
+
+#rm -rf ../install
+make install
+```
+
+```sh
+cd "${project_root:-.}"
+source ./sdk/environment-setup-aarch64-oe-linux
+
+### LS-5
+# this command can be used to clean old builds
+#rm -rf build_ls5
+
+mkdir -p build_ls5 && cd $_
+
+cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3568" 
 make
 
 #rm -rf ../install
@@ -409,17 +477,32 @@ Copy the extension scripts to the install dir
 cd "${project_root:-.}"
 
 cp bsext_init install/ && chmod +x install/bsext_init
+cp sh/uninstall.sh install/ && chmod +x install/uninstall.sh
 
-cp -rf model install/
+# cp -rf model install/
 ```
 
-Run the make extension script on the install dir
+#### To test the program without packing into an extension
+
+```sh
+cd "${project_root:-.}/install"
+
+# remove any old zip files
+#rm -f ../gaze-dev-*.zip
+
+zip -r ../gaze-dev-$(date +%s).zip ./
+```
+
+Copy the zip to the target, expand it, and use `bsext_init run` to test
+
+#### Run the make extension script on the install dir
 
 ```sh
 cd "${project_root:-.}"/install
 
 ../sh/make-extension-lvm
 # zip for convenience to transfer to player
+#rm -f ../gaze-demo-*.zip 
 zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
 # clean up
 rm -rf ext_npu_gaze*
@@ -473,11 +556,8 @@ Components that are part of this project are licensed seperately under their own
 To remove the extension, you can perform a Factory Reset or remove the extension manually.
 
 1. Connect to the player over SSH and drop to the Linux shell.
-
 2. STOP the extension -- e.g. `/var/volatile/bsext/ext_npu_gaze/bsext_init stop`
-
 3. VERIFY all the processes for your extension have stopped.
-
 4. Unmount the extension filesystem and remove it from BOTH the `/var/volatile` filesystem AND the `/dev/mapper` filesystem.
 
 Following the outline given by the `make-extension` script.
@@ -498,7 +578,22 @@ rm -rf /var/volatile/bsext/ext_npu_gaze
 
 # remove the extension from the system
 lvremove --yes /dev/mapper/bsext_npu_gaze
+# if that path does not exist, you can try
+lvremove --yes /dev/mapper/bsos-ext_npu_gaze
+
 rm -rf /dev/mapper/bsext_npu_gaze
+rm -rf /dev/mapper/bsos-ext_npu_gaze
 
 reboot
+```
+
+For convenience, an `uninstall.sh` script is packaged with the extension and can be run from the player shell.
+
+```bash
+/var/volatile/bsext/ext_npu_gaze/uninstall.sh
+# will remove the extension from the system
+
+# reboot to apply changes
+reboot
+
 ```

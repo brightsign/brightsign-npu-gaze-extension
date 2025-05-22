@@ -18,46 +18,66 @@ PIDFILE="/var/run/${DAEMON_NAME}.pid"
 
 # defaults -- these can be overridden by the registry
 DISABLE_AUTO_START=false
-VID_DEVID=/dev/video1
 
 # Common setup function to determine SOC model and video device
-get_runtime_args() {    
+get_soc_name() {
     # figure out the SOC model -- default to RK3588
-    SOC_MODEL=RK3588
+    SOC_NAME=RK3588
     if [ -f /sys/firmware/devicetree/base/compatible ]; then
         # Use strings command to handle null bytes in devicetree properly
         COMPATIBLE=$(strings /sys/firmware/devicetree/base/compatible)
         
         # Look for rockchip,rk3588 pattern in the compatible string
         if echo "$COMPATIBLE" | grep -q "rockchip,rk3588"; then
-            SOC_MODEL="RK3588"
+            SOC_NAME="RK3588"
+        fi
+        # Look for rockchip,rk3568 pattern in the compatible string
+        if echo "$COMPATIBLE" | grep -q "rockchip,rk3568"; then
+            SOC_NAME="RK3568"
         fi
     else
         echo "WARNING: Unable to determine SOC model, EXITING"
         exit 1
     fi
 
-    VID_DEVID=/dev/video0
-    if [ "${SOC_MODEL}" = "RK3588" ]; then
+    # Return the SOC model
+    echo "${SOC_NAME}"
+}
+
+get_video_device() {
+    SOC_NAME=$(get_soc_name)
+    # For  RK3588 models
+    if [ "${SOC_NAME}" = "RK3588" ]; then
         VID_DEVID=/dev/video1
+    else
+    # all others
+        VID_DEVID=/dev/video0
     fi
+
     # check registry for video device
+    # allows user to override the default video device
     reg_video_device=$(registry extension ${DAEMON_NAME}-video-device)
     if [ -n "${reg_video_device}" ]; then
         VID_DEVID=${reg_video_device}
     fi
-   
-    # Return the command arguments
-    echo "model/${SOC_MODEL}/RetinaFace.rknn ${VID_DEVID}"
+
+    # Return the video device
+    echo "${VID_DEVID}"
 }
+
 
 # Common function to run the attention demo
 run_attention_demo() {
     # Get command arguments from setup function
-    CMD_ARGS=$(get_runtime_args)
-    echo "Using Model and Device: ${CMD_ARGS}"
+    # CMD_ARGS=$(get_runtime_args)
+    # echo "Using Model and Device: ${CMD_ARGS}"
 
-    cd ${SCRIPT_PATH}
+    SOC_NAME=$(get_soc_name)
+    SOC_HOME=${SCRIPT_PATH}/${SOC_NAME}
+    cd ${SOC_HOME}
+
+    CMD_ARGS="${SOC_HOME}/model/RetinaFace.rknn $(get_video_device)"
+    echo "Using Model and Device: ${CMD_ARGS}"
     
     # Default to running in foreground
     local background=$1
@@ -66,10 +86,10 @@ run_attention_demo() {
     if [ "$background" = "true" ]; then
         # Run as a daemon in the background
         start-stop-daemon --start --background --make-pidfile --pidfile ${PIDFILE} \
-                          --exec ${SCRIPT_PATH}/attention_demo -- ${CMD_ARGS}
+                          --exec ${SOC_HOME}/attention_demo -- ${CMD_ARGS}
     else
         # Run directly in foreground
-        ${SCRIPT_PATH}/attention_demo ${CMD_ARGS}
+        ${SOC_HOME}/attention_demo ${CMD_ARGS}
     fi
 }
 
