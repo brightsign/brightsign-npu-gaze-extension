@@ -1,4 +1,4 @@
-# BrightSign NPU Gaze Extension
+# BrightSign Gaze Detection BSMP
 
 This is an example BrightSign Model Package (BSMP) that implements Gaze Detection on the BrightSign player NPU. This can be used as a template for development of other BSMP by partners and third-parties.
 
@@ -7,6 +7,33 @@ BSMP are delivered as an BrightSign OS (BOS) "extension." Extensions are deliver
 ## Supported Players
 
 As of May 20, 2025 the only players supported are the XT1145 and XT2145. Support for the LS5 family and Series 6 players will be added shortly.
+
+## Download the BSMP Package
+
+The Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/simple-gaze-detection-presentation/blob/main/bsfw/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  You will need a Linux-compatible USB webcam.  
+
+## Using the Inference Data
+
+The BSMP will "watch" the camera field of view and find all faces.  It then looks to find the eyes in each face.  If it can find both eyes it infers that the person was lookign in the direction of the camera.  This data is output in two UDP packets to localhost once per second.
+
+The first packet is sent to port 5000 and is intended for use by BrightSign BrightAuthor:connected presentations.  It's format:
+
+```
+faces_attending:1!!faces_in_frame_total:1!!timestamp:1746732408
+```
+BrightAuthor:connected can natively parse these packets without needing to provide any new code.  An example of how to use this is [here](https://github.com/brightsign/simple-gaze-detection-presentation).
+
+The second packet is sent to port 5002 and is intended for use by node applications.  It's format:
+
+```
+{"faces_attending":1,"faces_in_frame_total":1,"timestamp":1746732408}
+```
+
+The second packet is formated in JSON and should be easy to parse.   An example of how to use this is [here](https://github.com/brightsign/simple-gaze-detection-html).
+
+## Decorated Camera Output
+
+Every frame of video captured is processed through the model.  Every detected face has a bounding box drawn around it.  Faces with two eyes have a green box, otherwise the box is red.  The image is then written to a file on the /tmp folder.  This is a ram disk so it will not impact the life of the storage.  An example of how you can use those images to simulate the video with bounding boxes is [here](https://github.com/brightsign/simple-gaze-detection-html).
 
 ## Overview
 
