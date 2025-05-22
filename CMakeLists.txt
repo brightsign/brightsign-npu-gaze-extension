@@ -16,15 +16,15 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 
     set(MY_LIBS ${Boost_LIBRARIES} ${OpenCV_LIBS})
 else()
-# cross-compile from x86 for rk3588, XT5
+# cross-compile from x86 for rk3588/XT5, rk3568/LS5
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-poison-system-directories")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wpoison-system-directories")
 
     set(BOOST_ROOT ${CMAKE_SOURCE_DIR}/sdk/sysroots/aarch64-oe-linux/usr)
 
     include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
-    include_directories(${OECORE_TARGET_SYSROOT}/usr/include)
     include_directories(${OECORE_TARGET_SYSROOT}/usr/include/opencv4)
+    include_directories(${OECORE_TARGET_SYSROOT}/usr/include/opencv4/opencv2)
     include_directories(${OECORE_TARGET_SYSROOT}/usr/include/rga)
 
     link_directories(${OECORE_TARGET_SYSROOT}/usr/lib)
@@ -162,15 +162,17 @@ target_link_libraries(attention_demo
   ${TURBOJPEG_LIB}
 )
 
+# Convert TARGET_SOC to uppercase for SOC_DIR
+string(TOUPPER ${TARGET_SOC} SOC_DIR)
 # Custom command to copy .so files to the build directory
 add_custom_command(TARGET attention_demo POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy ${RKNN_RT_LIB} $<TARGET_FILE_DIR:attention_demo>
   COMMAND ${CMAKE_COMMAND} -E copy ${RGA_LIB} $<TARGET_FILE_DIR:attention_demo>
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/model $<TARGET_FILE_DIR:attention_demo>/model
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/install/${SOC_DIR}/model $<TARGET_FILE_DIR:attention_demo>/model
 )
 
 # install target and libraries
-set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/)
+set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${SOC_DIR})
 install(TARGETS attention_demo DESTINATION ./)
 
 # Use FILE(COPY) which preserves the actual files rather than symlinks

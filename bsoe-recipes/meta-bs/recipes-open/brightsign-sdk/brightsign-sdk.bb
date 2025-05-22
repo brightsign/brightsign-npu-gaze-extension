@@ -15,7 +15,6 @@ TOOLCHAIN_HOST_TASK = "\
 "
 
 TOOLCHAIN_TARGET_TASK += "\
-    cmake \
     libstdc++ \
     libmicrohttpd \
     opencv \
