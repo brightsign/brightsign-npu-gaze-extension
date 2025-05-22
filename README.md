@@ -6,11 +6,16 @@ BSMP are delivered as an BrightSign OS (BOS) "extension." Extensions are deliver
 
 ## Supported Players
 
-As of May 20, 2025 the only players supported are the XT1145 and XT2145. Support for the LS5 family and Series 6 players will be added shortly.
+As of May 22, 2025 the supported players are
+
+| player | minimum OS Version required |
+| --- | --- |
+| XT-5: XT1145, XT2145 | 9.0.189 |
+| LS-5: LS445 | 9.1.49 |
 
 ## Download the BSMP Package
 
-The Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/simple-gaze-detection-presentation/blob/main/bsfw/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  You will need a Linux-compatible USB webcam.  
+The Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/simple-gaze-detection-presentation/blob/main/bsfw/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  You will need a Linux-compatible USB webcam.
 
 ## Using the Inference Data
 
@@ -18,14 +23,15 @@ The BSMP will "watch" the camera field of view and find all faces.  It then look
 
 The first packet is sent to port 5000 and is intended for use by BrightSign BrightAuthor:connected presentations.  It's format:
 
-```
+```ini
 faces_attending:1!!faces_in_frame_total:1!!timestamp:1746732408
 ```
+
 BrightAuthor:connected can natively parse these packets without needing to provide any new code.  An example of how to use this is [here](https://github.com/brightsign/simple-gaze-detection-presentation).
 
 The second packet is sent to port 5002 and is intended for use by node applications.  It's format:
 
-```
+```ini
 {"faces_attending":1,"faces_in_frame_total":1,"timestamp":1746732408}
 ```
 
@@ -201,7 +207,7 @@ rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
 
 ```
 
-**_IMPORTANT_**: Building an OpenEmbedded project can be very particular in terms of packages and setup. For that reason it **strongly recommended** to use the [Docker build](https://github.com/brightsign/extension-template/blob/main/README.md#recommended-docker) approadh.
+___IMPORTANT___: Building an OpenEmbedded project can be very particular in terms of packages and setup. For that reason it __strongly recommended__ to use the [Docker build](https://github.com/brightsign/extension-template/blob/main/README.md#recommended-docker) approadh.
 
 ```sh
 # Build the SDK in Docker -- RECOMMENDED
@@ -424,7 +430,6 @@ The setup script `environment-setup-aarch64-oe-linux` will set appropriate paths
 ### Build the app
 
 ```sh
-### XT-5
 cd "${project_root:-.}"
 source ./sdk/environment-setup-aarch64-oe-linux
 
@@ -444,7 +449,6 @@ make install
 cd "${project_root:-.}"
 source ./sdk/environment-setup-aarch64-oe-linux
 
-### LS-5
 # this command can be used to clean old builds
 #rm -rf build_ls5
 
@@ -541,7 +545,7 @@ The gaze demo application will start automatically on boot (see `bsext_init`). F
 _this section under development_
 
 * Submit the extension to BrightSign for signing
-* Contact BrightSign 
+* Contact BrightSign
 
 ## Licensing
 
