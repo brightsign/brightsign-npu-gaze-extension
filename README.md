@@ -1,4 +1,4 @@
-# BrightSign Gaze Detection BSMP
+# BrightSign Gaze Detection BSMP (ALPHA RELEASE)
 
 This is an example BrightSign Model Package (BSMP) that implements Gaze Detection on the BrightSign player NPU. This can be used as a template for development of other BSMP by partners and third-parties.
 
@@ -10,12 +10,18 @@ As of May 22, 2025 the supported players are
 
 | player | minimum OS Version required |
 | --- | --- |
-| XT-5: XT1145, XT2145 | 9.0.189 |
-| LS-5: LS445 | 9.1.49 |
+| XT-5: XT1145, XT2145 | [9.0.189](https://brightsignbiz.s3.amazonaws.com/firmware/xd5/9.0/9.0.189/brightsign-xd5-update-9.0.189.zip) |
+| LS-5: LS445 | [BETA-9.1.49](https://bsnbuilds.s3.us-east-1.amazonaws.com/firmware/brightsign-demos/9.1.149-BETA/BETA-cobra-9.1.49-update.bsfw) |
+
+## Supported Cameras
+
+In general, any camera supported by Linux *should* work.  We've had great luck with Logitech cameras, especially the C270.  
 
 ## Download the BSMP Package
 
-The Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/simple-gaze-detection-presentation/blob/main/bsfw/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  You will need a Linux-compatible USB webcam.
+The latest Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.4-alpha/cobra-standalone-npu_gaze-0.1.4-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  
+
+The prior Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.3-alpha/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  
 
 ## Using the Inference Data
 
