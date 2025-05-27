@@ -5,9 +5,6 @@ This is an example BrightSign Model Package (BSMP) that implements Gaze Detectio
 BSMP are delivered as an BrightSign OS (BOS) "extension." Extensions are delivered as firmware update files that are installed on a reboot. These are basically Linux squashfs file systems that extend the firmware to include the BSMP. You can learn more about extensions in our [Extension Template Repository](https://github.com/brightsign/extension-template).
 
 ## Supported Players
-
-As of May 22, 2025 the supported players are
-
 | player | minimum OS Version required |
 | --- | --- |
 | XT-5: XT1145, XT2145 | [9.0.189](https://brightsignbiz.s3.amazonaws.com/firmware/xd5/9.0/9.0.189/brightsign-xd5-update-9.0.189.zip) |
