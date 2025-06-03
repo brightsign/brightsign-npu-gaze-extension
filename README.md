@@ -328,7 +328,7 @@ Compile the model.  Note the opetion for various SoCs.
 # for RK3588 -- XT-5 players
 cd "${project_root:-.}"/toolkit/rknn_model_zoo/
 
-mkdir -p examples/RetinaFace/model/RK3568
+mkdir -p examples/RetinaFace/model/RK3588
 docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
     -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3588 i8 ../model/RK3588/RetinaFace.rknn"
 
