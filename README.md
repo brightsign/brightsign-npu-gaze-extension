@@ -5,20 +5,22 @@ This is an example BrightSign Model Package (BSMP) that implements Gaze Detectio
 BSMP are delivered as an BrightSign OS (BOS) "extension." Extensions are delivered as firmware update files that are installed on a reboot. These are basically Linux squashfs file systems that extend the firmware to include the BSMP. You can learn more about extensions in our [Extension Template Repository](https://github.com/brightsign/extension-template).
 
 ## Supported Players
+
 | player | minimum OS Version required |
 | --- | --- |
 | XT-5: XT1145, XT2145 | [9.0.189](https://brightsignbiz.s3.amazonaws.com/firmware/xd5/9.0/9.0.189/brightsign-xd5-update-9.0.189.zip) |
+| Firebird | [BETA-9.1.49](https://bsnbuilds.s3.us-east-1.amazonaws.com/firmware/brightsign-demos/9.1.149-BETA/BETA-cobra-9.1.49-update.bsfw) |
 | LS-5: LS445 | [BETA-9.1.49](https://bsnbuilds.s3.us-east-1.amazonaws.com/firmware/brightsign-demos/9.1.149-BETA/BETA-cobra-9.1.49-update.bsfw) |
 
 ## Supported Cameras
 
-In general, any camera supported by Linux *should* work.  We've had great luck with Logitech cameras, especially the C270.  
+In general, any camera supported by Linux *should* work.  We've had great luck with Logitech cameras, especially the C270.
 
 ## Download the BSMP Package
 
-The latest Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.4-alpha/cobra-standalone-npu_gaze-0.1.4-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  
+The latest Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.4-alpha/cobra-standalone-npu_gaze-0.1.4-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.
 
-The prior Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.3-alpha/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  
+The prior Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.3-alpha/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.
 
 ## Using the Inference Data
 
@@ -326,12 +328,9 @@ Compile the model.  Note the opetion for various SoCs.
 # for RK3588 -- XT-5 players
 cd "${project_root:-.}"/toolkit/rknn_model_zoo/
 
+mkdir -p examples/RetinaFace/model/RK3568
 docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
     -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3588 i8 ../model/RK3588/RetinaFace.rknn"
-
-# move the generated model to the right place
-# mkdir -p ../../install/model/RK3588
-# cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/model/RK3588/
 
 mkdir -p ../../install/RK3588/model
 cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/RK3588/model/
@@ -339,17 +338,26 @@ cp examples/RetinaFace/model/RK3588/RetinaFace.rknn ../../install/RK3588/model/
 ```
 
 ```sh
-# For RK3568 -- LS-5 Players
+# for RK3576 -- Firebird players
+cd "${project_root:-.}"/toolkit/rknn_model_zoo/
 
+mkdir -p examples/RetinaFace/model/RK3576
+docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
+    -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3576 i8 ../model/RK3576/RetinaFace.rknn"
+
+mkdir -p ../../install/RK3576/model
+cp examples/RetinaFace/model/RK3576/RetinaFace.rknn ../../install/RK3576/model/
+```
+
+```sh
+# For RK3568 -- LS-5 Players
 cd "${project_root:-.}"/toolkit/rknn_model_zoo/
 
 mkdir -p examples/RetinaFace/model/RK3568
-
 docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
     -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3568 i8 ../model/RK3568/RetinaFace.rknn"
 
 mkdir -p ../../install/RK3568/model
-# cp examples/RetinaFace/model/RK3568/RetinaFace.rknn ../../model/RK3568/
 cp examples/RetinaFace/model/RK3568/RetinaFace.rknn ../../install/RK3568/model/
 ```
 
@@ -442,6 +450,22 @@ source ./sdk/environment-setup-aarch64-oe-linux
 mkdir -p build_xt5 && cd $_
 
 cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588" 
+make
+
+#rm -rf ../install
+make install
+```
+
+```sh
+cd "${project_root:-.}"
+source ./sdk/environment-setup-aarch64-oe-linux
+
+# this command can be used to clean old builds
+#rm -rf build_firebird
+
+mkdir -p build_firebird && cd $_
+
+cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3576" 
 make
 
 #rm -rf ../install

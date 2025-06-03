@@ -31,6 +31,12 @@ get_soc_name() {
         if echo "$COMPATIBLE" | grep -q "rockchip,rk3588"; then
             SOC_NAME="RK3588"
         fi
+
+        # Look for rockchip,rk3576 pattern in the compatible string
+        if echo "$COMPATIBLE" | grep -q "rockchip,rk3576"; then
+            SOC_NAME="RK3576"
+        fi
+
         # Look for rockchip,rk3568 pattern in the compatible string
         if echo "$COMPATIBLE" | grep -q "rockchip,rk3568"; then
             SOC_NAME="RK3568"
