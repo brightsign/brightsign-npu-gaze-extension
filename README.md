@@ -7,18 +7,18 @@ BSMP are delivered as an BrightSign OS (BOS) "extension." Extensions are deliver
 ## Supported Players
 | player | minimum OS Version required |
 | --- | --- |
-| XT-5: XT1145, XT2145 | [9.0.189](https://brightsignbiz.s3.amazonaws.com/firmware/xd5/9.0/9.0.189/brightsign-xd5-update-9.0.189.zip) |
-| LS-5: LS445 | [BETA-9.1.49](https://bsnbuilds.s3.us-east-1.amazonaws.com/firmware/brightsign-demos/9.1.149-BETA/BETA-cobra-9.1.49-update.bsfw) |
+| XT-5: XT1145, XT2145, LS-5 on 9.0 | [9.0.189](https://brightsignbiz.s3.amazonaws.com/firmware/xd5/9.0/9.0.189/brightsign-xd5-update-9.0.189.zip) |
+| XT-5: XT1145, XT2145, LS-5 on 9.1 | [9.1.52](https://brightsignbiz.s3.amazonaws.com/firmware/xd5/9.1/9.1.52/brightsign-xd5-update-9.1.52.zip)    |
 
 ## Supported Cameras
 
-In general, any camera supported by Linux *should* work.  We've had great luck with Logitech cameras, especially the C270.  
+In general, any camera supported by Linux *should* work.  We've had great luck with Logitech cameras, especially the C270.
 
 ## Download the BSMP Package
 
-The latest Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.4-alpha/cobra-standalone-npu_gaze-0.1.4-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  
+The latest Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.4-alpha/cobra-standalone-npu_gaze-0.1.4-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.
 
-The prior Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.3-alpha/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.  
+The prior Gaze Detection BSMP can be downloaded from [here](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.3-alpha/cobra-standalone-npu_gaze-0.1.3-alpha.bsfw).  To install it simply copy it to the root folder on the SD card and reboot the player.
 
 ## Using the Inference Data
 
@@ -80,7 +80,7 @@ This project will create an installable BrightSign Extension that:
 | `timestamp` | time of message |
 
 ```bash
-# sample message 
+# sample message
 
 # socat -u UDP-LISTEN:5002 -
 {"faces_attending":1,"faces_in_frame_total":1,"timestamp":1746732408}
@@ -151,7 +151,7 @@ __IMPORTANT: THE TOOLCHAIN REFERENCED BY THIS PROJECT REQUIRES A DEVELOPMENT HOS
 # for Ubuntu, Debian, etc.
 sudo apt-get update && sudo apt-get install -y \
     cmake git
-    
+
 ```
 
 ## Step 0 - Setup
@@ -202,7 +202,7 @@ tar -xzf brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz
 
 # Patch BrightSign OS with some special recipes for the SDK
 # Apply custom recipes to BrightSign OS source
-rsync -av bsoe-recipes/ brightsign-oe/ 
+rsync -av bsoe-recipes/ brightsign-oe/
 
 # Clean up disk space
 rm brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz
@@ -381,7 +381,7 @@ export project_root=$(pwd)
 **SECOND**: Copy the `install` directory, all sub directories and files to the OPi
 
 ```sh
-# example using scp... 
+# example using scp...
 cd "${project_root:-.}"
 
 # customize as needed
@@ -441,7 +441,7 @@ source ./sdk/environment-setup-aarch64-oe-linux
 
 mkdir -p build_xt5 && cd $_
 
-cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588" 
+cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588"
 make
 
 #rm -rf ../install
@@ -457,7 +457,7 @@ source ./sdk/environment-setup-aarch64-oe-linux
 
 mkdir -p build_ls5 && cd $_
 
-cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3568" 
+cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3568"
 make
 
 #rm -rf ../install
@@ -509,7 +509,7 @@ cd "${project_root:-.}"/install
 
 ../sh/make-extension-lvm
 # zip for convenience to transfer to player
-#rm -f ../gaze-demo-*.zip 
+#rm -f ../gaze-demo-*.zip
 zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
 # clean up
 rm -rf ext_npu_gaze*
