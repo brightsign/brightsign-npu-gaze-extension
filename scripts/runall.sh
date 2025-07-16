@@ -155,15 +155,15 @@ step0_setup() {
     print_status "Setting up BrightSign OS SDK..."
     
     # Set OS version variables
-    export BRIGHTSIGN_OS_MAJOR_VERION=9.0
-    export BRIGHTSIGN_OS_MINOR_VERION=189
-    export BRIGHTSIGN_OS_VERSION=${BRIGHTSIGN_OS_MAJOR_VERION}.${BRIGHTSIGN_OS_MINOR_VERION}
+    export BRIGHTSIGN_OS_MAJOR_VERSION=9.0
+    export BRIGHTSIGN_OS_MINOR_VERSION=189
+    export BRIGHTSIGN_OS_VERSION=${BRIGHTSIGN_OS_MAJOR_VERSION}.${BRIGHTSIGN_OS_MINOR_VERSION}
     
     # Download BrightSign OS source if not already downloaded
     if [ ! -f "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz" ]; then
         print_status "Downloading BrightSign OS source..."
-        wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
-        wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
+        wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERSION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
+        wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERSION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
     else
         print_status "BrightSign OS source already downloaded"
     fi
