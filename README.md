@@ -8,6 +8,7 @@ This project provides a complete, automated build system to create BrightSign ex
 
 **Total Time**: 60-90 minutes | **Prerequisites**: Docker, git, x86_64 Linux host
 
+
 > ⏱️ **Time Breakdown**: Most time is spent in the OpenEmbedded SDK build (30-45 min). The process is fully automated but requires patience for the BitBake compilation.
 
 ```bash
@@ -74,6 +75,7 @@ In a typical development workflow, steps 1-4 (setup, model compilation, build an
 
 ## ⚙️ Configuration & Customization
 
+
 The extension is highly configurable via BrightSign registry keys:
 
 ### Core Settings
@@ -111,6 +113,7 @@ This extension allows two, optional registry keys to be set to:
 The extension "watches" the camera field of view and finds all faces. It then looks to find the eyes in each face. If it can find both eyes it infers that the person was looking in the direction of the camera. This data is output in two UDP packets to localhost once per second.
 
 ### UDP Output Formats
+
 
 **Port 5000** (BrightScript format for BrightAuthor:connected):
 ```ini
@@ -175,6 +178,7 @@ unzip /storage/sd/gaze-dev-*.zip
 cd /usr/local && unzip /storage/sd/gaze-ext-*.zip
 bash ./ext_npu_gaze_install-lvm.sh
 reboot  # Extension auto-starts after reboot
+
 ```
 
 ## 🛠️ Development & Testing
@@ -224,6 +228,7 @@ Benefits:
 ./build --help                    # SDK build options
 ./build-apps --help               # Application build options
 ./package --help                  # Packaging options
+
 ```
 
 **Build Failures**:
