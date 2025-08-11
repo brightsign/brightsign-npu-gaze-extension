@@ -1,0 +1,243 @@
+#!/bin/bash
+
+# BrightSign NPU Gaze Extension - Build Script
+# Builds SDK from BrightSign OE sources and compiles C++ application
+
+set -e
+
+# Check if running as root, which can cause permission issues.
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: This script must not be run as root. Please run as a regular user."
+    exit 1
+fi
+
+# get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default values
+TARGET=""
+CLEAN=false
+QUIET=false
+VERBOSE=false
+DISTCLEAN=false
+EXTRACT_SDK=false
+NO_PATCH=false
+BRIGHTSIGN_OS_VERSION=${BRIGHTSIGN_OS_VERSION:-9.1.52}
+
+usage() {
+    echo "Usage: $0 [OPTIONS] [TARGET]"
+    echo "Build BrightSign NPU Gaze Extension using BitBake SDK build"
+    echo ""
+    echo "Arguments:"
+    echo "  TARGET              Package or recipe to build (default: brightsign-sdk)"
+    echo "                      Examples: python3-tqdm, python3-opencv, brightsign-sdk"
+    echo ""
+    echo "Options:"
+    echo "  -c, --clean         Clean build artifacts for the target (bitbake -c cleanall)."
+    echo "  --distclean         Perform a deeper clean, removing tmp-glibc and sstate-cache. Implies --clean."
+    echo "  --extract-sdk       Extract built SDK to host after successful build."
+    echo "  --no-patch          Build without applying any patches (vanilla build)."
+    echo "  -q, --quiet         Use quieter build output."
+    echo "  -v, --verbose       Enable verbose output."
+    echo "  -h, --help          Show this help message."
+    echo "  --interactive       Launch container and keep interactive shell."
+    echo ""
+    echo "Examples:"
+    echo "  $0                          # Build full SDK with patches applied"
+    echo "  $0 --extract-sdk            # Build SDK and extract to host"
+    echo "  $0 python3-tqdm            # Build specific package with patches"
+    echo "  $0 python3-tqdm --clean    # Clean then build specific package"
+    echo "  $0 --no-patch python3-tqdm # Build package without any patches"
+    echo "  $0 --distclean brightsign-sdk  # Clean and distclean then build full SDK"
+    echo ""
+    echo "Note: Builds require Docker image 'bsoe-build' with pre-built source"
+    echo "      Build Docker image first: ./setup"
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--clean)
+            CLEAN=true
+            shift
+            ;;
+        --distclean)
+            DISTCLEAN=true
+            CLEAN=true # distclean implies clean
+            shift
+            ;;
+        --extract-sdk)
+            EXTRACT_SDK=true
+            shift
+            ;;
+        --no-patch)
+            NO_PATCH=true
+            shift
+            ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --interactive)
+            INTERACTIVE=true
+            shift
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            if [ -z "$TARGET" ]; then
+                TARGET="$1"
+            else
+                echo "Multiple targets specified. Only one target allowed."
+                usage
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Set default target if not provided
+if [ -z "$TARGET" ]; then
+    TARGET="brightsign-sdk"
+fi
+
+# Interactive shell option
+if [ "$INTERACTIVE" = true ]; then
+    echo "Launching interactive shell in Docker container..."
+    docker run --rm -it \
+        -v "${SCRIPT_DIR}/srv:/srv" \
+        -v "${SCRIPT_DIR}/bsoe-recipes:/home/builder/patches:ro" \
+        -w /home/builder/bsoe/brightsign-oe/build \
+        bsoe-build bash
+    exit 0
+fi
+
+# Verbose output
+if [ "$VERBOSE" = true ]; then
+    echo "BrightSign NPU Gaze Extension - Build Script"
+    echo "============================================="
+    echo "Script directory: $SCRIPT_DIR"
+    echo "Target: $TARGET"
+    echo "Clean build: $CLEAN"
+    echo "Distclean: $DISTCLEAN"
+    echo "Extract SDK: $EXTRACT_SDK"
+    echo "No patches: $NO_PATCH"
+    echo "Quiet mode: $QUIET"
+    echo "BrightSign OS Version: $BRIGHTSIGN_OS_VERSION"
+    echo ""
+fi
+
+# Check if Docker image exists
+if ! docker images | grep -q "^bsoe-build "; then
+    echo "Error: Docker image 'bsoe-build' not found."
+    echo "Please build the Docker image first:"
+    echo "  ./setup"
+    exit 1
+fi
+
+# Build quiet flag
+QUIET_FLAG=""
+if [ "$QUIET" = true ]; then
+    QUIET_FLAG="-q"
+fi
+
+# Prepare Docker run command with bind mounts
+DOCKER_CMD="docker run --rm \
+    -v \"${SCRIPT_DIR}/srv:/srv\" \
+    -w /home/builder/bsoe/brightsign-oe/build \
+    bsoe-build"
+
+# Add patch volume only if patches will be applied
+if [ "$NO_PATCH" != true ]; then
+    DOCKER_CMD="docker run --rm \
+        -v \"${SCRIPT_DIR}/bsoe-recipes:/home/builder/patches:ro\" \
+        -v \"${SCRIPT_DIR}:/home/builder/host-scripts:ro\" \
+        -v \"${SCRIPT_DIR}/srv:/srv\" \
+        -w /home/builder/bsoe/brightsign-oe/build \
+        bsoe-build"
+fi
+
+# Build command construction
+BUILD_CMD="MACHINE=cobra ./bsbb $QUIET_FLAG ${TARGET}"
+
+# Add SDK extraction if requested
+if [ "$EXTRACT_SDK" = true ] && [ "$TARGET" = "brightsign-sdk" ]; then
+    BUILD_CMD="$BUILD_CMD && if [ -d tmp-glibc/deploy/sdk ]; then cp tmp-glibc/deploy/sdk/brightsign-x86_64-*-toolchain-*.sh /srv/ 2>/dev/null || true; echo 'SDK copied to /srv for extraction'; fi"
+fi
+
+# Construct full container command
+CONTAINER_CMD=""
+
+# Add distclean if requested
+if [ "$DISTCLEAN" = true ]; then
+    echo "Will perform distclean inside container..."
+    CONTAINER_CMD="$CONTAINER_CMD if [ -d /home/builder/bsoe/brightsign-oe/build/tmp-glibc ]; then rm -rf /home/builder/bsoe/brightsign-oe/build/tmp-glibc; echo 'Removed tmp-glibc'; fi; "
+    CONTAINER_CMD="$CONTAINER_CMD if [ -d /home/builder/bsoe/brightsign-oe/sstate-cache ]; then rm -rf /home/builder/bsoe/brightsign-oe/sstate-cache; echo 'Removed sstate-cache'; fi; "
+fi
+
+# Add patch application if not --no-patch mode
+if [ "$NO_PATCH" != true ]; then
+    echo "Will apply patches and build $TARGET..."
+    CONTAINER_CMD="$CONTAINER_CMD /usr/local/bin/setup-patches.sh && "
+else
+    echo "Building $TARGET without patches (vanilla build)..."
+fi
+
+# Add clean if requested
+if [ "$CLEAN" = true ]; then
+    echo "Will clean previous build artifacts for $TARGET..."
+    CONTAINER_CMD="$CONTAINER_CMD MACHINE=cobra ./bsbb -c cleanall $TARGET 2>/dev/null || true; "
+fi
+
+# Add the main build command
+CONTAINER_CMD="$CONTAINER_CMD $BUILD_CMD"
+
+# Execute everything in a single container run
+echo "Building $TARGET..."
+if [ "$TARGET" = "brightsign-sdk" ]; then
+    echo "Warning: Full SDK build may take 30+ minutes depending on your system"
+fi
+
+eval "$DOCKER_CMD bash -c \"$CONTAINER_CMD\""
+
+if [ $? -eq 0 ]; then
+    echo "✅ $TARGET built successfully"
+    
+    # Extract SDK if requested
+    if [ "$EXTRACT_SDK" = true ] && [ "$TARGET" = "brightsign-sdk" ]; then
+        echo "Extracting SDK to host..."
+        
+        # Look for SDK file in srv directory (copied during build)
+        SDK_FILE=$(ls "${SCRIPT_DIR}/srv/brightsign-x86_64-"*"-toolchain-"*".sh" 2>/dev/null | head -n 1)
+        
+        if [ -n "$SDK_FILE" ] && [ -f "$SDK_FILE" ]; then
+            SDK_BASENAME=$(basename "$SDK_FILE")
+            cp "$SDK_FILE" "${SCRIPT_DIR}/${SDK_BASENAME}"
+            echo "✅ SDK extracted to ${SCRIPT_DIR}/${SDK_BASENAME}"
+            # Clean up the copy in srv
+            rm -f "$SDK_FILE"
+            
+            echo ""
+            echo "Next step to install SDK:"
+            echo "  ./${SDK_BASENAME} -d ./sdk -y"
+        else
+            echo "❌ SDK file not found in /srv directory"
+            echo "    Expected: ${SCRIPT_DIR}/srv/brightsign-x86_64-*-toolchain-*.sh"
+        fi
+    fi
+else
+    echo "❌ $TARGET build failed"
+    exit 1
+fi
