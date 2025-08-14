@@ -164,16 +164,43 @@ target_link_libraries(attention_demo
 
 # Convert TARGET_SOC to uppercase for SOC_DIR
 string(TOUPPER ${TARGET_SOC} SOC_DIR)
+
+# Clone and build the Go image stream server with better error handling
+set(IMAGE_STREAM_SERVER_DIR ${CMAKE_BINARY_DIR}/bs-image-stream-server)
+set(IMAGE_STREAM_SERVER_BINARY ${IMAGE_STREAM_SERVER_DIR}/cmd/image-stream-server-arm64)
+
+add_custom_target(image_stream_server ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "Cloning and building bs-image-stream-server..."
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}
+    COMMAND bash -c "set -e && if [ ! -d '${IMAGE_STREAM_SERVER_DIR}' ]; then echo 'Cloning bs-image-stream-server...' && git clone git@github.com:brightsign/bs-image-stream-server.git '${IMAGE_STREAM_SERVER_DIR}'; else echo 'Repository already exists, updating...' && cd '${IMAGE_STREAM_SERVER_DIR}' && git pull origin main || true; fi && echo 'Building image stream server...' && cd '${IMAGE_STREAM_SERVER_DIR}' && echo 'Current directory:' && pwd && make build-arm64 && if [ -f '${IMAGE_STREAM_SERVER_BINARY}' ]; then echo 'Build completed successfully, copying binary...' && cp '${IMAGE_STREAM_SERVER_BINARY}' '${CMAKE_BINARY_DIR}/image-stream-server'; else echo 'Build failed - binary not found at ${IMAGE_STREAM_SERVER_BINARY}' && exit 1; fi"
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Cloning and building bs-image-stream-server"
+    VERBATIM
+)
+
 # Custom command to copy .so files to the build directory
 add_custom_command(TARGET attention_demo POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy ${RKNN_RT_LIB} $<TARGET_FILE_DIR:attention_demo>
   COMMAND ${CMAKE_COMMAND} -E copy ${RGA_LIB} $<TARGET_FILE_DIR:attention_demo>
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/install/${SOC_DIR}/model $<TARGET_FILE_DIR:attention_demo>/model
+  # Copy the Go binary from the build directory
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_BINARY_DIR}/image-stream-server $<TARGET_FILE_DIR:attention_demo>/image-stream-server
 )
+
+# Make sure image_stream_server builds before attention_demo
+add_dependencies(attention_demo image_stream_server)
 
 # install target and libraries
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${SOC_DIR})
 install(TARGETS attention_demo DESTINATION ./)
+
+# Install the image stream server binary from the copied location
+install(FILES ${CMAKE_BINARY_DIR}/image-stream-server
+        DESTINATION ./
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                   GROUP_READ GROUP_EXECUTE
+                   WORLD_READ WORLD_EXECUTE
+        OPTIONAL)
 
 # Use FILE(COPY) which preserves the actual files rather than symlinks
 install(CODE "

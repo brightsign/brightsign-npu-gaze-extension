@@ -160,16 +160,10 @@ step0_setup() {
     export BRIGHTSIGN_OS_VERSION=${BRIGHTSIGN_OS_MAJOR_VERSION}.${BRIGHTSIGN_OS_MINOR_VERSION}
     
     # Download BrightSign OS source if not already downloaded
-    if [ ! -f "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz" ]; then
+    if [ ! -d "brightsign-oe" ]; then
         print_status "Downloading BrightSign OS source..."
         wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERSION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
         wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERSION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
-    else
-        print_status "BrightSign OS source already downloaded"
-    fi
-
-    # Extract if not already extracted
-    if [ ! -d "brightsign-oe" ]; then
         print_status "Extracting BrightSign OS source..."
         tar -xzf "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
         tar -xzf "brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
@@ -181,7 +175,7 @@ step0_setup() {
         rm "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
         rm "brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
     else
-        print_status "BrightSign OS source already extracted"
+        print_status "BrightSign OS source already downloaded"
     fi
 
     # Build SDK in Docker
