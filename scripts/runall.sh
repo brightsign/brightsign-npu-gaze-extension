@@ -45,9 +45,9 @@ prompt_continue() {
     echo -e "\n${YELLOW}NEXT STEPS:${NC}"
     echo "$message"
     echo
-    read -p "Do you want to continue? (y/N): " -n 1 -r
+    read -p "Do you want to continue? (y/N): " -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $REPLY =~ ^[Yy]([Ee][Ss])?$ ]]; then
         print_status "Exiting..."
         exit 0
     fi
@@ -82,9 +82,9 @@ cleanup_all() {
     
     if [ "$AUTO_MODE" != true ]; then
         echo
-        read -p "Are you sure you want to proceed with cleanup? This cannot be undone! (y/N): " -n 1 -r
+        read -p "Are you sure you want to proceed with cleanup? This cannot be undone! (y/N): " -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if [[ ! $REPLY =~ ^[Yy]([Ee][Ss])?$ ]]; then
             print_status "Cleanup cancelled."
             return 0
         fi
@@ -104,12 +104,35 @@ cleanup_all() {
         # First try to make files writable and remove build artifacts
         if [ -d "brightsign-oe/build" ]; then
             print_status "Cleaning build artifacts..."
-            chmod -R u+w brightsign-oe/build 2>/dev/null || true
-            rm -rf brightsign-oe/build 2>/dev/null || true
+            if ! chmod -R u+w brightsign-oe/build 2>/dev/null; then
+                print_warning "Could not make build files writable - some files may be owned by root (from Docker)"
+            fi
+            if ! rm -rf brightsign-oe/build 2>/dev/null; then
+                print_warning "Could not remove brightsign-oe/build directory - trying with sudo..."
+                if command_exists sudo; then
+                    sudo rm -rf brightsign-oe/build 2>/dev/null || print_warning "Failed to remove build directory even with sudo"
+                else
+                    print_warning "No sudo available - build directory may remain"
+                fi
+            fi
         fi
-        # Remove the entire directory with force
-        chmod -R u+w brightsign-oe 2>/dev/null || true
-        rm -rf brightsign-oe || print_warning "Some files in brightsign-oe couldn't be removed (this is normal)"
+        # Remove the entire directory with better error reporting
+        if ! chmod -R u+w brightsign-oe 2>/dev/null; then
+            print_warning "Could not make all brightsign-oe files writable"
+        fi
+        
+        if ! rm -rf brightsign-oe 2>/dev/null; then
+            print_warning "Could not remove brightsign-oe directory completely"
+            print_warning "This is often due to Docker-created files with root ownership"
+            print_warning "You may need to run: sudo rm -rf brightsign-oe"
+            
+            # Try to remove what we can and report what's left
+            remaining_files=$(find brightsign-oe -type f 2>/dev/null | wc -l)
+            remaining_dirs=$(find brightsign-oe -type d 2>/dev/null | wc -l)
+            if [ "$remaining_files" -gt 0 ] || [ "$remaining_dirs" -gt 1 ]; then
+                print_warning "Remaining: $remaining_files files in $remaining_dirs directories"
+            fi
+        fi
     fi
     
     # Remove build directories
@@ -146,17 +169,62 @@ cleanup_all() {
     # Remove Docker images
     print_status "Removing Docker images..."
     if command_exists docker && docker info >/dev/null 2>&1; then
+        # Handle bsoe-build image and containers
         if docker images | grep -q "bsoe-build"; then
             print_status "Removing bsoe-build Docker image..."
-            docker rmi bsoe-build || print_warning "Failed to remove bsoe-build image"
+            
+            # Check for containers using this image
+            containers=$(docker ps -a --filter ancestor=bsoe-build --format "{{.ID}}" 2>/dev/null)
+            if [ -n "$containers" ]; then
+                print_status "Found containers using bsoe-build image, removing them first..."
+                echo "$containers" | while read -r container_id; do
+                    if [ -n "$container_id" ]; then
+                        print_status "Stopping container: $container_id"
+                        docker stop "$container_id" 2>/dev/null || print_warning "Failed to stop container $container_id"
+                        print_status "Removing container: $container_id"
+                        docker rm "$container_id" 2>/dev/null || print_warning "Failed to remove container $container_id"
+                    fi
+                done
+            fi
+            
+            # Now try to remove the image
+            if ! docker rmi bsoe-build 2>/dev/null; then
+                print_warning "Failed to remove bsoe-build image after container cleanup"
+                print_warning "Try manually: docker images | grep bsoe-build"
+            fi
         fi
         
+        # Handle rknn_tk2 image and containers  
         if docker images | grep -q "rknn_tk2"; then
             print_status "Removing rknn_tk2 Docker image..."
-            docker rmi rknn_tk2 || print_warning "Failed to remove rknn_tk2 image"
+            
+            # Check for containers using this image
+            containers=$(docker ps -a --filter ancestor=rknn_tk2 --format "{{.ID}}" 2>/dev/null)
+            if [ -n "$containers" ]; then
+                print_status "Found containers using rknn_tk2 image, removing them first..."
+                echo "$containers" | while read -r container_id; do
+                    if [ -n "$container_id" ]; then
+                        print_status "Stopping container: $container_id"
+                        docker stop "$container_id" 2>/dev/null || print_warning "Failed to stop container $container_id"
+                        print_status "Removing container: $container_id"
+                        docker rm "$container_id" 2>/dev/null || print_warning "Failed to remove container $container_id"
+                    fi
+                done
+            fi
+            
+            # Now try to remove the image
+            if ! docker rmi rknn_tk2 2>/dev/null; then
+                print_warning "Failed to remove rknn_tk2 image after container cleanup"
+                print_warning "Try manually: docker images | grep rknn_tk2"
+            fi
         fi
     else
         print_warning "Docker not available - skipping Docker image cleanup"
+        if ! command_exists docker; then
+            print_warning "Docker command not found"
+        else
+            print_warning "Docker daemon not running - try: sudo systemctl start docker"
+        fi
     fi
     
     print_status "Cleanup completed successfully!"
