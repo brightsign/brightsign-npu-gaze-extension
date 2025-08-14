@@ -17,31 +17,6 @@ AUTO_MODE=false
 SKIP_ARCH_CHECK=false
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -auto|--auto)
-            AUTO_MODE=true
-            shift
-            ;;
-        --skip-arch-check)
-            SKIP_ARCH_CHECK=true
-            shift
-            ;;
-        -h|--help)
-            echo "Usage: $0 [-auto|--auto] [--skip-arch-check]"
-            echo "  -auto: Run all steps without prompting for confirmation"
-            echo "  --skip-arch-check: Skip x86_64 architecture check (for testing)"
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Use -h for help"
-            exit 1
-            ;;
-    esac
-done
-
 # Function to print colored output
 print_status() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -90,6 +65,133 @@ check_docker_running() {
         exit 1
     fi
 }
+
+# Function to cleanup all generated files and directories
+cleanup_all() {
+    print_header "CLEANUP: Removing all generated files and directories"
+    
+    print_warning "This will remove ALL generated files including:"
+    print_warning "- Downloaded BrightSign OS source files"
+    print_warning "- Extracted directories (brightsign-oe)"
+    print_warning "- Docker images (bsoe-build, rknn_tk2)"
+    print_warning "- Build directories (build_xt5, build_ls5)"
+    print_warning "- SDK installation (sdk directory)"
+    print_warning "- Toolkit repositories (toolkit directory)"
+    print_warning "- Generated packages (*.zip files)"
+    print_warning "- Install directory contents"
+    
+    if [ "$AUTO_MODE" != true ]; then
+        echo
+        read -p "Are you sure you want to proceed with cleanup? This cannot be undone! (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Cleanup cancelled."
+            return 0
+        fi
+    fi
+    
+    cd "$PROJECT_ROOT"
+    
+    # Remove downloaded source files
+    print_status "Removing downloaded source files..."
+    rm -f brightsign-*.tar.gz
+    rm -f brightsign-x86_64-cobra-toolchain-*.sh
+    rm -f Dockerfile
+    
+    # Remove extracted directories
+    print_status "Removing extracted directories..."
+    if [ -d "brightsign-oe" ]; then
+        # First try to make files writable and remove build artifacts
+        if [ -d "brightsign-oe/build" ]; then
+            print_status "Cleaning build artifacts..."
+            chmod -R u+w brightsign-oe/build 2>/dev/null || true
+            rm -rf brightsign-oe/build 2>/dev/null || true
+        fi
+        # Remove the entire directory with force
+        chmod -R u+w brightsign-oe 2>/dev/null || true
+        rm -rf brightsign-oe || print_warning "Some files in brightsign-oe couldn't be removed (this is normal)"
+    fi
+    
+    # Remove build directories
+    print_status "Removing build directories..."
+    rm -rf build_xt5
+    rm -rf build_ls5
+    
+    # Remove SDK installation
+    print_status "Removing SDK installation..."
+    rm -rf sdk
+    
+    # Remove toolkit repositories
+    print_status "Removing toolkit repositories..."
+    rm -rf toolkit
+    
+    # Remove generated packages
+    print_status "Removing generated packages..."
+    rm -f gaze-dev-*.zip
+    rm -f gaze-demo-*.zip
+    
+    # Clean install directory (but keep the directory itself)
+    print_status "Cleaning install directory..."
+    if [ -d "install" ]; then
+        rm -rf install/RK3568
+        rm -rf install/RK3588
+        rm -f install/bsext_init
+        rm -f install/uninstall.sh
+    fi
+    
+    # Remove srv directory
+    print_status "Removing srv directory..."
+    rm -rf srv
+    
+    # Remove Docker images
+    print_status "Removing Docker images..."
+    if command_exists docker && docker info >/dev/null 2>&1; then
+        if docker images | grep -q "bsoe-build"; then
+            print_status "Removing bsoe-build Docker image..."
+            docker rmi bsoe-build || print_warning "Failed to remove bsoe-build image"
+        fi
+        
+        if docker images | grep -q "rknn_tk2"; then
+            print_status "Removing rknn_tk2 Docker image..."
+            docker rmi rknn_tk2 || print_warning "Failed to remove rknn_tk2 image"
+        fi
+    else
+        print_warning "Docker not available - skipping Docker image cleanup"
+    fi
+    
+    print_status "Cleanup completed successfully!"
+    print_status "The project directory has been reset to its initial state."
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -auto|--auto)
+            AUTO_MODE=true
+            shift
+            ;;
+        --skip-arch-check)
+            SKIP_ARCH_CHECK=true
+            shift
+            ;;
+        -c|--clean)
+            cleanup_all
+            exit 0
+            ;;
+        -h|--help)
+            echo "Usage: $0 [-auto|--auto] [--skip-arch-check] [--clean]"
+            echo "  -auto: Run all steps without prompting for confirmation"
+            echo "  --skip-arch-check: Skip x86_64 architecture check (for testing)"
+            echo "  --clean: Remove all generated files, directories, and Docker images"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h for help"
+            exit 1
+            ;;
+    esac
+done
 
 # STEP 0: Setup
 step0_setup() {
