@@ -523,15 +523,15 @@ step4_package() {
     
     # Create production extension
     ../sh/make-extension-lvm
-    rm -f ../gaze-demo-*.zip
-    zip "../gaze-demo-$(date +%s).zip" ext_npu_gaze*
+    rm -f ../gaze-ext-*.zip
+    zip "../gaze-ext-$(date +%s).zip" ext_npu_gaze*
     rm -rf ext_npu_gaze*
 
     cd "$project_root"
     
     print_status "Step 4 completed successfully!"
     print_status "Development package: gaze-dev-*.zip"
-    print_status "Production extension: gaze-demo-*.zip"
+    print_status "Production extension: gaze-ext-*.zip"
 }
 
 # Main execution
@@ -566,7 +566,7 @@ main() {
     print_status "All steps completed successfully!"
     print_status "Check the install directory for the built files"
     print_status "Development package: gaze-dev-*.zip"
-    print_status "Production extension: gaze-demo-*.zip"
+    print_status "Production extension: gaze-ext-*.zip"
     
     print_warning "Don't forget to unsecure your BrightSign player as described in the README!"
 }

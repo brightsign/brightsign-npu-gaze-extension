@@ -1,0 +1,71 @@
+{
+  "extension": {
+    "version": "0.1.5",
+    "description": "NPU-accelerated gaze detection using RetinaFace model for audience analytics",
+    "author": {
+      "name": "BrightSign LLC",
+      "email": "support@brightsign.biz",
+      "url": "https://www.brightsign.biz"
+    },
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/brightsign/brightsign-npu-gaze-extension",
+    "category": "ai-vision"
+  },
+  
+  "compatibility": {
+    "osVersion": {
+      "min": "9.0.189",
+      "target": "9.1.0"
+    }
+  },
+  
+  "requirements": {
+    "capabilities": [
+      "camera.usb",
+      "npu.rockchip",
+      "storage.persistent"
+    ],
+    "memory": {
+      "minimum": "512MB",
+      "recommended": "1GB"
+    },
+    "storage": {
+      "installation": "100MB",
+      "runtime": "50MB"
+    }
+  },
+  
+  "runtime": {
+    "autoStart": true,
+    "startupDelay": 5,
+    "restartPolicy": "always",
+    "priority": "normal"
+  },
+  
+  "registry": {
+    "configurable": [
+      {
+        "key": "video-device",
+        "type": "string",
+        "default": "",
+        "description": "USB camera device path (empty for auto-detect: /dev/video1 for XT-5, /dev/video0 for others)"
+      },
+      {
+        "key": "disable-auto-start",
+        "type": "boolean",
+        "default": false,
+        "description": "Disable automatic startup of the extension"
+      }
+    ]
+  },
+  
+  "update": {
+    "policy": "manual",
+    "backupPrevious": true,
+    "preserveConfig": true,
+    "rollbackSupported": false,
+    "minVersionForUpdate": "0.1.0",
+    "maxVersionGap": "1.0.0",
+    "requiresReboot": true
+  }
+}

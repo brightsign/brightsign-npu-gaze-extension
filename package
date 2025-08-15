@@ -1,0 +1,692 @@
+#!/bin/bash
+
+# BrightSign Gaze Detection - Package Creation Script
+# Creates both development and extension packages with multi-SOC support
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Cleanup on exit
+cleanup_on_exit() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo ""
+        warn "Script failed with exit code $exit_code"
+        warn "Staging directory preserved for debugging: staging/"
+    fi
+}
+
+# Set trap for cleanup on script exit
+trap cleanup_on_exit EXIT
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log() {
+    echo -e "${BLUE}[PACKAGE] $1${NC}"
+}
+
+warn() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+error() {
+    echo -e "${RED}❌ $1${NC}"
+    exit 1
+}
+
+success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+# Configuration
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+DEVELOPMENT_PACKAGE="gaze-dev-${TIMESTAMP}.zip"
+EXTENSION_PACKAGE="gaze-ext-${TIMESTAMP}.zip"
+
+# Supported SOCs and their mappings
+declare -A SOC_PLATFORMS=(
+    ["RK3588"]="XT5"
+    ["RK3576"]="Firebird" 
+    ["RK3568"]="LS5"
+)
+
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "Package BrightSign Gaze Detection extension for deployment"
+    echo ""
+    echo "Options:"
+    echo "  -d, --dev-only     Create development package only"
+    echo "  -e, --ext-only     Create extension package only"
+    echo "  -c, --clean        Clean install directory before packaging"
+    echo "  -v, --verify       Run validation after packaging"
+    echo "  --soc SOC          Package specific SOC only (RK3588, RK3576, RK3568)"
+    echo "  -h, --help         Show this help message"
+    echo ""
+    echo "Package types:"
+    echo "  Development: For /usr/local deployment (volatile, testing)"
+    echo "  Extension:   For permanent installation (production)"
+    echo ""
+    echo "SOC Support:"
+    echo "  RK3588  -> XT-5 players (XT1145, XT2145)"
+    echo "  RK3576  -> Firebird development boards"
+    echo "  RK3568  -> LS-5 players (LS445)"
+    echo ""
+    echo "Model Support:"
+    echo "  RetinaFace -> Face detection with gaze estimation"
+}
+
+# Parse command line arguments
+DEV_ONLY=false
+EXT_ONLY=false
+CLEAN=false
+VERIFY=false
+SPECIFIC_SOC=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -d|--dev-only)
+            DEV_ONLY=true
+            shift
+            ;;
+        -e|--ext-only)
+            EXT_ONLY=true
+            shift
+            ;;
+        -c|--clean)
+            CLEAN=true
+            shift
+            ;;
+        -v|--verify)
+            VERIFY=true
+            shift
+            ;;
+        --soc)
+            SPECIFIC_SOC="$2"
+            if [[ ! "${SPECIFIC_SOC}" =~ ^(RK3588|RK3576|RK3568)$ ]]; then
+                error "Invalid SOC: $SPECIFIC_SOC. Must be RK3588, RK3576, or RK3568"
+            fi
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# Check prerequisites
+check_prerequisites() {
+    log "Checking prerequisites..."
+
+    # Check for compiled binaries
+    local found_binaries=false
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local build_dir="build_${SOC_PLATFORMS[$soc],,}"
+        if [[ -f "$build_dir/attention_demo" ]]; then
+            found_binaries=true
+            break
+        fi
+    done
+
+    # Also check install directory structure
+    if [[ "$found_binaries" != "true" ]]; then
+        for soc in "${!SOC_PLATFORMS[@]}"; do
+            if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+                continue
+            fi
+            
+            local install_dir="install/$soc"
+            if [[ -f "$install_dir/attention_demo" ]]; then
+                found_binaries=true
+                break
+            fi
+        done
+    fi
+
+    if [[ "$found_binaries" != "true" ]]; then
+        error "No compiled binaries found. Please run build process for gaze extension first."
+    fi
+
+    # Check for compiled models
+    local found_models=false
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local install_dir="install/$soc"
+        if [[ -d "$install_dir/model" ]] && [[ -f "$install_dir/model/RetinaFace.rknn" ]]; then
+            found_models=true
+            break
+        fi
+    done
+
+    if [[ "$found_models" != "true" ]]; then
+        error "No compiled models found. Please ensure RetinaFace models are compiled for each SOC."
+    fi
+
+    # Check for required scripts
+    if [[ ! -f "sh/make-extension-lvm" ]]; then
+        error "make-extension-lvm script not found"
+    fi
+
+    if [[ ! -f "bsext_init" ]]; then
+        error "bsext_init script not found"
+    fi
+
+    success "Prerequisites check passed"
+}
+
+# Create package directory structure
+create_package_structure() {
+    log "Creating package structure..."
+
+    if [[ "$CLEAN" == "true" ]]; then
+        log "Cleaning existing staging directory..."
+        rm -rf staging
+    fi
+
+    # Create base package structure
+    mkdir -p staging
+
+    # Create SOC-specific directories
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local platform="${SOC_PLATFORMS[$soc]}"
+        log "Creating directory structure for $soc ($platform)..."
+        mkdir -p "staging/$soc"
+    done
+
+    success "Package structure created"
+}
+
+# Copy binaries and libraries for each SOC
+copy_binaries() {
+    log "Copying compiled binaries and libraries..."
+
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local platform="${SOC_PLATFORMS[$soc]}"
+        local build_dir="build_${platform,,}"
+        local install_dir="install/$soc"
+        local package_soc_dir="staging/$soc"
+        
+        log "Copying $soc ($platform) binaries..."
+        
+        # Try build directory first, then install directory
+        local source_dir=""
+        if [[ -d "$build_dir" && -f "$build_dir/attention_demo" ]]; then
+            source_dir="$build_dir"
+        elif [[ -d "$install_dir" && -f "$install_dir/attention_demo" ]]; then
+            source_dir="$install_dir"
+        else
+            warn "No binaries found for $soc, skipping"
+            continue
+        fi
+
+        # Copy main binary
+        if [[ -f "$source_dir/attention_demo" ]]; then
+            cp "$source_dir/attention_demo" "$package_soc_dir/"
+            chmod +x "$package_soc_dir/attention_demo"
+        else
+            warn "Binary not found in $source_dir, skipping $soc"
+            continue
+        fi
+
+        # Copy libraries
+        mkdir -p "$package_soc_dir/lib"
+        
+        # Copy shared libraries from source directory
+        for lib in "$source_dir"/*.so*; do
+            if [[ -f "$lib" ]]; then
+                cp "$lib" "$package_soc_dir/lib/"
+            fi
+        done
+
+        # Also try to copy from install lib directory if it exists
+        if [[ -d "$install_dir/lib" ]]; then
+            for lib in "$install_dir/lib"/*.so*; do
+                if [[ -f "$lib" ]]; then
+                    cp "$lib" "$package_soc_dir/lib/" 2>/dev/null || true
+                fi
+            done
+        fi
+
+        success "$soc binaries copied"
+    done
+}
+
+# Copy models for each SOC
+copy_models() {
+    log "Copying compiled models..."
+
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local platform="${SOC_PLATFORMS[$soc]}"
+        local install_dir="install/$soc"
+        local package_soc_dir="staging/$soc"
+        
+        log "Copying $soc ($platform) models from $install_dir..."
+        
+        if [[ ! -d "$install_dir/model" ]]; then
+            warn "Model directory $install_dir/model not found, skipping $soc models"
+            continue
+        fi
+
+        mkdir -p "$package_soc_dir/model"
+
+        # Copy RetinaFace model
+        if [[ -f "$install_dir/model/RetinaFace.rknn" ]]; then
+            cp "$install_dir/model/RetinaFace.rknn" "$package_soc_dir/model/"
+            log "Copied RetinaFace model for $soc"
+        else
+            warn "RetinaFace model not found for $soc"
+        fi
+
+        success "$soc models copied"
+    done
+}
+
+# Generate manifest.json from manifest-config.json
+generate_manifest() {
+    log "Generating manifest.json..."
+    
+    # Check if manifest-config.json exists
+    if [[ ! -f "manifest-config.json" ]]; then
+        warn "manifest-config.json not found. Creating from template..."
+        if [[ -f "manifest-config.template.json" ]]; then
+            cp manifest-config.template.json manifest-config.json
+            warn "Please edit manifest-config.json with your extension information"
+        else
+            error "manifest-config.json and template not found"
+        fi
+    fi
+    
+    # Read configuration
+    local config_content=$(cat manifest-config.json)
+    
+    # Get build information
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local commit_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    local sdk_version="unknown"
+    
+    # Try to determine SDK version from environment or installed SDK
+    if [[ -n "${OECORE_SDK_VERSION}" ]]; then
+        sdk_version="brightsign-sdk-${OECORE_SDK_VERSION}"
+    elif [[ -f "sdk/version-"* ]]; then
+        sdk_version=$(basename sdk/version-* | sed 's/version-/brightsign-sdk-/')
+    fi
+    
+    # Determine which SOCs are being packaged
+    local soc_array="[]"
+    local soc_json_items=()
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local platform="${SOC_PLATFORMS[$soc]}"
+        if [[ -d "staging/$soc" ]]; then
+            local experimental="false"
+            if [[ "$soc" == "RK3576" ]]; then
+                experimental="true"
+            fi
+            soc_json_items+=("    {\"id\": \"$soc\", \"platforms\": [\"$platform\"], \"minRevision\": \"1.0\", \"experimental\": $experimental}")
+        fi
+    done
+    
+    if [[ ${#soc_json_items[@]} -gt 0 ]]; then
+        soc_array="["$'\n'
+        soc_array+=$(printf '%s,\n' "${soc_json_items[@]}" | sed '$ s/,$//')
+        soc_array+=$'\n'"  ]"
+    fi
+    
+    # Determine player compatibility based on SOCs
+    local players_array="[]"
+    if [[ "$soc_array" != "[]" ]]; then
+        local player_items=()
+        
+        # RK3588 -> Series 5 XT players
+        if [[ "$soc_array" =~ "RK3588" ]]; then
+            player_items+=("    {\"series\": \"5\", \"models\": [\"XT1145\", \"XT2145\"], \"features\": [\"npu\"]}")
+        fi
+        
+        # RK3568 -> Series 5 LS players  
+        if [[ "$soc_array" =~ "RK3568" ]]; then
+            player_items+=("    {\"series\": \"5\", \"models\": [\"LS445\"], \"features\": [\"npu\"]}")
+        fi
+        
+        # RK3576 -> Firebird development boards
+        if [[ "$soc_array" =~ "RK3576" ]]; then
+            player_items+=("    {\"series\": \"firebird\", \"models\": [\"dev\"], \"features\": [\"npu\"], \"experimental\": true}")
+        fi
+        
+        if [[ ${#player_items[@]} -gt 0 ]]; then
+            players_array="["$'\n'
+            players_array+=$(printf '%s,\n' "${player_items[@]}" | sed '$ s/,$//')
+            players_array+=$'\n'"  ]"
+        fi
+    fi
+    
+    # Extract key fields from config using jq
+    local version=$(echo "$config_content" | jq -r '.extension.version // "1.0.0"')
+    local description=$(echo "$config_content" | jq -r '.extension.description // "NPU-accelerated gaze detection using RetinaFace"')
+    local author=$(echo "$config_content" | jq -c '.extension.author // {"name": "BrightSign LLC"}')
+    local license=$(echo "$config_content" | jq -r '.extension.license // "Apache-2.0"')
+    local homepage=$(echo "$config_content" | jq -r '.extension.homepage // "https://github.com/brightsign/brightsign-npu-gaze-extension"')
+    local category=$(echo "$config_content" | jq -r '.extension.category // "ai-vision"')
+    
+    # Extract compatibility info
+    local os_min=$(echo "$config_content" | jq -r '.compatibility.osVersion.min // "9.0.0"')
+    local os_target=$(echo "$config_content" | jq -r '.compatibility.osVersion.target // "9.1.0"')
+    local os_max=$(echo "$config_content" | jq -r '.compatibility.osVersion.max // null')
+    
+    # Build OS version object
+    local os_version_obj="{\"min\": \"$os_min\", \"target\": \"$os_target\""
+    if [[ "$os_max" != "null" ]]; then
+        os_version_obj+=", \"max\": \"$os_max\""
+    fi
+    os_version_obj+="}"
+    
+    # Extract other sections
+    local requirements=$(echo "$config_content" | jq -c '.requirements // {}')
+    local runtime=$(echo "$config_content" | jq -c '.runtime // {}')
+    local registry=$(echo "$config_content" | jq -c '.registry // {}')
+    local update=$(echo "$config_content" | jq -c '.update // {}')
+    
+    # Build the manifest JSON
+    cat > staging/manifest.json <<EOF
+{
+  "\$schema": "https://brightsign.biz/schemas/extension-manifest/v1.json",
+  "manifestVersion": 1,
+  
+  "extension": {
+    "id": "com.brightsign.gaze-detection",
+    "name": "Gaze Detection",
+    "shortName": "Gaze",
+    "version": "$version",
+    "description": "$description",
+    "author": $author,
+    "license": "$license",
+    "homepage": "$homepage",
+    "category": "$category"
+  },
+  
+  "compatibility": {
+    "osVersion": $os_version_obj,
+    "players": $players_array,
+    "soc": $soc_array
+  },
+  
+  "requirements": $requirements,
+  
+  "runtime": $runtime,
+  
+  "registry": $registry,
+  
+  "update": $update,
+  
+  "build": {
+    "timestamp": "$timestamp",
+    "sdk": "$sdk_version",
+    "commit": "$commit_hash"
+  }
+}
+EOF
+
+    # Validate the generated manifest
+    if command -v jq >/dev/null 2>&1; then
+        if jq empty staging/manifest.json 2>/dev/null; then
+            success "manifest.json generated and validated"
+        else
+            error "Generated manifest.json is not valid JSON"
+        fi
+    else
+        warn "jq not installed, skipping manifest validation"
+        success "manifest.json generated"
+    fi
+}
+
+# Add extension management scripts
+copy_extension_scripts() {
+    log "Adding extension management scripts..."
+
+    # Copy main bsext_init script
+    cp bsext_init staging/ && chmod +x staging/bsext_init
+
+    # Copy uninstall script
+    if [[ -f "sh/uninstall.sh" ]]; then
+        cp sh/uninstall.sh staging/ && chmod +x staging/uninstall.sh
+    fi
+
+    success "Extension scripts added"
+}
+
+# Verify package structure
+verify_package() {
+    log "Verifying package structure..."
+    
+    local errors=0
+    local total_files=0
+
+    # Check for main scripts
+    local essential_files=(
+        "bsext_init"
+        "manifest.json"
+    )
+
+    for file in "${essential_files[@]}"; do
+        if [[ ! -f "staging/$file" ]]; then
+            warn "Missing file: staging/$file"
+            errors=$((errors + 1))
+        fi
+    done
+
+    # Check SOC directories
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local platform="${SOC_PLATFORMS[$soc]}"
+        local soc_dir="staging/$soc"
+        
+        if [[ ! -d "$soc_dir" ]]; then
+            warn "Missing SOC directory: $soc_dir"
+            errors=$((errors + 1))
+            continue
+        fi
+
+        # Check for binary
+        if [[ ! -f "$soc_dir/attention_demo" ]]; then
+            warn "Missing binary: $soc_dir/attention_demo"
+            errors=$((errors + 1))
+        else
+            total_files=$((total_files + 1))
+        fi
+
+        # Check for RetinaFace model
+        if [[ ! -f "$soc_dir/model/RetinaFace.rknn" ]]; then
+            warn "Missing model: $soc_dir/model/RetinaFace.rknn"
+            errors=$((errors + 1))
+        else
+            total_files=$((total_files + 1))
+        fi
+
+        log "$soc ($platform): Binary + RetinaFace model"
+    done
+
+    if [[ $errors -eq 0 ]]; then
+        success "Package verification passed ($total_files files packaged)"
+    else
+        warn "Package verification found $errors issues"
+    fi
+
+    # Show package size
+    local package_size=$(du -sh staging/ 2>/dev/null | cut -f1)
+    log "Package size: $package_size"
+}
+
+# Create development package
+create_development_package() {
+    log "Creating development package..."
+
+    cd staging
+    zip -r "../$DEVELOPMENT_PACKAGE" ./ >/dev/null
+    cd ..
+
+    local package_size=$(du -sh "$DEVELOPMENT_PACKAGE" 2>/dev/null | cut -f1)
+    success "Development package created: $DEVELOPMENT_PACKAGE ($package_size)"
+
+    echo ""
+    echo "Development Package Usage:"
+    echo "1. Transfer $DEVELOPMENT_PACKAGE to player via DWS"
+    echo "2. On player: mkdir -p /usr/local/gaze && cd /usr/local/gaze"
+    echo "3. On player: unzip /storage/sd/$DEVELOPMENT_PACKAGE"
+    echo "4. On player: ./bsext_init run"
+    echo "Note: Development installation is volatile (lost on reboot)"
+}
+
+# Create extension package
+create_extension_package() {
+    log "Creating production extension package..."
+
+    cd staging
+
+    # Run make-extension script
+    ../sh/make-extension-lvm || error "Extension creation failed"
+
+    # Package the extension
+    zip "../$EXTENSION_PACKAGE" ext_npu_gaze* >/dev/null
+
+    # Clean up temporary files
+    rm -rf ext_npu_gaze*
+
+    cd ..
+
+    local package_size=$(du -sh "$EXTENSION_PACKAGE" 2>/dev/null | cut -f1)
+    success "Extension package created: $EXTENSION_PACKAGE ($package_size)"
+
+    echo ""
+    echo "Extension Package Usage:"
+    echo "1. Transfer $EXTENSION_PACKAGE to player via DWS"
+    echo "2. On player: mkdir -p /usr/local && cd /usr/local"
+    echo "3. On player: unzip /storage/sd/$EXTENSION_PACKAGE"
+    echo "4. On player: bash ./ext_npu_gaze_install-lvm.sh"
+    echo "5. On player: reboot"
+    echo "Note: Extension installation is permanent (persists across reboots)"
+}
+
+# Cleanup staging directory
+cleanup_staging() {
+    if [[ -d "staging" ]]; then
+        log "Cleaning up staging directory..."
+        rm -rf staging
+        success "Staging directory cleaned up"
+    fi
+}
+
+# Main packaging function
+main() {
+    echo "BrightSign Gaze Detection - Package Creation"
+    echo "============================================"
+    
+    # Show configuration
+    echo "Configuration:"
+    echo "  SOC Filter: ${SPECIFIC_SOC:-All supported SOCs}"
+    echo "  Package Type: $([ "$DEV_ONLY" == "true" ] && echo "Development only" || [ "$EXT_ONLY" == "true" ] && echo "Extension only" || echo "Both")"
+    echo ""
+
+    local start_time=$(date +%s)
+
+    check_prerequisites
+    echo ""
+
+    create_package_structure
+    copy_binaries
+    copy_models
+    generate_manifest
+    copy_extension_scripts
+    echo ""
+
+    verify_package
+    echo ""
+
+    # Create packages based on options
+    if [[ "$EXT_ONLY" == "true" ]]; then
+        create_extension_package
+    elif [[ "$DEV_ONLY" == "true" ]]; then
+        create_development_package
+    else
+        create_development_package
+        echo ""
+        create_extension_package
+    fi
+
+    # Clean up staging directory after successful packaging
+    cleanup_staging
+
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    echo ""
+    success "Packaging completed in $(($duration / 60))m $(($duration % 60))s"
+
+    # Show created packages
+    echo ""
+    echo "Created packages:"
+    if [[ "$EXT_ONLY" != "true" ]]; then
+        echo "  📦 $DEVELOPMENT_PACKAGE (development/testing)"
+    fi
+    if [[ "$DEV_ONLY" != "true" ]]; then
+        echo "  📦 $EXTENSION_PACKAGE (production)"
+    fi
+
+    # Show what was packaged
+    echo ""
+    echo "Package contents:"
+    for soc in "${!SOC_PLATFORMS[@]}"; do
+        if [[ -n "$SPECIFIC_SOC" && "$SPECIFIC_SOC" != "$soc" ]]; then
+            continue
+        fi
+        
+        local platform="${SOC_PLATFORMS[$soc]}"
+        echo "  🎯 $soc ($platform): Binary + RetinaFace model"
+    done
+
+    echo ""
+    echo "Next steps:"
+    echo "1. Transfer package(s) to BrightSign player"
+    echo "2. Install using instructions shown above"
+    echo "3. Configure via registry if needed (video device, auto-start, etc.)"
+    echo "4. Test with attached USB camera"
+}
+
+# Run main function if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
