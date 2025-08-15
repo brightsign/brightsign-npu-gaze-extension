@@ -114,7 +114,7 @@ cp sh/uninstall.sh install/ && chmod +x install/uninstall.sh
 # Create extension package
 cd install
 ../sh/make-extension-lvm
-zip ../gaze-demo-$(date +%s).zip ext_npu_gaze*
+zip ../gaze-ext-$(date +%s).zip ext_npu_gaze*
 rm -rf ext_npu_gaze*
 ```
 
