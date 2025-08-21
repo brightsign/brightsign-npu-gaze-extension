@@ -1,0 +1,123 @@
+name: Build Extension
+permissions:
+  id-token: write # Required for requesting the JWT
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      bs_os_version:
+        required: true
+        type: choice
+        description: "Brightsign OS Version"
+        options:
+          - 9.0.189
+
+      build-models:
+        description: "Build models"
+        required: true
+        type: boolean
+        default: false
+
+      build-sdk:
+        description: "Build SDK"
+        required: true
+        type: boolean
+        default: false
+
+env:
+  DOCKER_IMAGE: bsoe-build
+  S3_URL: s3://bs-npu-artifacts-cicd/brightsign-npu-gaze-extension
+
+jobs:
+  build-extension:
+    runs-on: ubuntu-latest-4-cores
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4     
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::207998159418:role/github-actions-npu-repos-role
+          aws-region: us-east-1      
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set Environment variables
+        run: |
+          echo "BRIGHTSIGN_OS_VERSION=${{ inputs.bs_os_version }}" >> "$GITHUB_ENV"
+          aws s3 ls ${{ env.S3_URL }}/models/install-models.tgz && (echo "COMPILE_MODELS=false" >> "$GITHUB_ENV") || echo "COMPILE_MODELS=true" >> "$GITHUB_ENV"
+          aws s3 ls ${{ env.S3_URL }}/sdk/brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh || echo "BUILD_SDK=true" >> "$GITHUB_ENV"
+
+          if [[ "${{ github.event.inputs.build-models }}" == "true" ]] || [[ "${{ env.COMPILE_MODELS }}" == "true" ]]; then
+            echo "COMPILE_MODELS_FLAG=" >> "$GITHUB_ENV"
+          else
+            echo "COMPILE_MODELS_FLAG=--skip-models" >> "$GITHUB_ENV"
+          fi
+
+          if [[ "${{ github.event.inputs.build-sdk }}" == "true" ]] || [[ "${{ env.BUILD_SDK }}" == "true" ]]; then
+            echo "COMPILE_SDK_FLAG=" >> "$GITHUB_ENV"
+          else
+            echo "COMPILE_SDK_FLAG=--skip-sdk" >> "$GITHUB_ENV"
+          fi
+
+          mkdir -p srv
+          chmod 777 srv
+          mkdir build_xt5
+          mkdir build_ls5
+
+      - name: Download models
+        if: ${{ inputs.build-models == false }}
+        run: |
+          aws s3 ls ${{ env.S3_URL }}/models/install-models.tgz && aws s3 cp ${{ env.S3_URL }}/models/install-models.tgz . &&  tar -xzf install-models.tgz || (echo "COMPILE_MODELS_FLAG=" >> "$GITHUB_ENV")
+
+      - name: Get SDK
+        if: ${{ inputs.build-sdk == false }}
+        run: |
+          echo "BUILD_SDK=false" >> "$GITHUB_ENV"
+          aws s3 ls ${{ env.S3_URL }}/sdk/brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh && aws s3 cp ${{ env.S3_URL }}/sdk/brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh . && chmod +x ./brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh || (echo "COMPILE_SDK_FLAG=" >> "$GITHUB_ENV") 
+
+      - name: Prepare build dir XT5
+        uses: actions/checkout@v4
+        with:
+          repository: brightsign/bs-image-stream-server
+          token: ${{ secrets.BS_IMAGE_STREAM_SERVER_READ }}
+          path: ./build_xt5/bs-image-stream-server
+
+      - name: Prepare build dir LS5
+        uses: actions/checkout@v4
+        with:
+          repository: brightsign/bs-image-stream-server
+          token: ${{ secrets.BS_IMAGE_STREAM_SERVER_READ }}
+          path: ./build_ls5/bs-image-stream-server
+
+
+      - name: Run build script
+        run: |
+          ./scripts/runall.sh -y ${{ env.COMPILE_MODELS_FLAG }} ${{ env.COMPILE_SDK_FLAG }} --skip-clean --version ${{ inputs.bs_os_version }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        if: always()
+        with:
+          role-to-assume: arn:aws:iam::207998159418:role/github-actions-npu-repos-role
+          aws-region: us-east-1      
+
+      - name: Upload models
+        if: ${{ inputs.build-models == true || env.COMPILE_MODELS != 'false' }}
+        run: |
+          tar -czf install-models.tgz install
+          aws s3 cp install-models.tgz ${{ env.S3_URL }}/models/install-models.tgz
+
+      - name: Upload SDK to S3
+        if: env.BUILD_SDK != 'false'
+        run: |
+          aws s3 cp ./brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh ${{ env.S3_URL }}/sdk/ 
+
+      - name: Export dev packages
+        run: |
+          aws s3 cp ./*-dev-*.zip ${{ env.S3_URL }}/packages/development/
+          aws s3 cp ./*-ext-*.zip ${{ env.S3_URL }}/packages/extension/
