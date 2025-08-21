@@ -73,12 +73,45 @@ jobs:
         if: ${{ inputs.build-models == false }}
         run: |
           aws s3 ls ${{ env.S3_URL }}/models/install-models.tgz && aws s3 cp ${{ env.S3_URL }}/models/install-models.tgz . &&  tar -xzf install-models.tgz || (echo "COMPILE_MODELS_FLAG=" >> "$GITHUB_ENV")
-
+          set -e
+          if aws s3 ls ${{ env.S3_URL }}/models/install-models.tgz; then
+            if aws s3 cp ${{ env.S3_URL }}/models/install-models.tgz .; then
+              if tar -xzf install-models.tgz; then
+                echo "Downloaded and extracted models successfully."
+              else
+                echo "Failed to extract models archive."
+                echo "COMPILE_MODELS_FLAG=" >> "$GITHUB_ENV"
+              fi
+            else
+              echo "Failed to download models archive."
+              echo "COMPILE_MODELS_FLAG=" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "Models archive not found in S3."
+            echo "COMPILE_MODELS_FLAG=" >> "$GITHUB_ENV"
+          fi
       - name: Get SDK
         if: ${{ inputs.build-sdk == false }}
         run: |
           echo "BUILD_SDK=false" >> "$GITHUB_ENV"
-          aws s3 ls ${{ env.S3_URL }}/sdk/brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh && aws s3 cp ${{ env.S3_URL }}/sdk/brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh . && chmod +x ./brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh || (echo "COMPILE_SDK_FLAG=" >> "$GITHUB_ENV") 
+          SDK_FILE="brightsign-x86_64-cobra-toolchain-${{ env.BRIGHTSIGN_OS_VERSION }}.sh"
+          S3_PATH="${{ env.S3_URL }}/sdk/$SDK_FILE"
+          if aws s3 ls "$S3_PATH"; then
+            if aws s3 cp "$S3_PATH" .; then
+              if chmod +x "./$SDK_FILE"; then
+                echo "SDK file downloaded and made executable."
+              else
+                echo "Failed to make SDK file executable."
+                echo "COMPILE_SDK_FLAG=" >> "$GITHUB_ENV"
+              fi
+            else
+              echo "Failed to download SDK file from S3."
+              echo "COMPILE_SDK_FLAG=" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "SDK file not found in S3."
+            echo "COMPILE_SDK_FLAG=" >> "$GITHUB_ENV"
+          fi
 
       - name: Prepare build dir XT5
         uses: actions/checkout@v4

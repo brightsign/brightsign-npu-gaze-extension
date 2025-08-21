@@ -259,27 +259,27 @@ while [[ $# -gt 0 ]]; do
                 echo "Invalid version format: $2. Use major.minor or major.minor.patch"
                 exit 1
             fi
-            shift 2 
-            ;;            
+            shift 2
+            ;;
         --skip-arch-check)
             SKIP_ARCH_CHECK=true
             shift
             ;;
         --major)
-            BRIGHTSIGN_OS_MAJOR_VERSION="$2"; shift 2 
+            BRIGHTSIGN_OS_MAJOR_VERSION="$2"; shift 2
             ;;
         --minor)
-            BRIGHTSIGN_OS_MINOR_VERSION="$2"; shift 2 
+            BRIGHTSIGN_OS_MINOR_VERSION="$2"; shift 2
             ;;
         --skip-models)
-            SKIP_MODELS=true; shift 
+            SKIP_MODELS=true; shift
             ;;
         --skip-sdk)
-            SKIP_SDK=true; shift 
+            SKIP_SDK=true; shift
             ;;
         --skip-clean)
             SKIP_CLEAN=true; shift
-            ;;	                
+            ;;                
         -c|--clean)
             cleanup_all
             exit 0
@@ -353,7 +353,7 @@ step0_setup() {
     
     print_warning "MANUAL STEP REQUIRED: You need to unsecure your BrightSign player"
     print_warning "Follow the instructions in the README.md under 'Unsecure the Player'"
-    print_warning "This involves connecting serial cable and using boot commands"    
+    print_warning "This involves connecting serial cable and using boot commands"
 }
 
 # STEP 1: Build docker image
@@ -380,7 +380,7 @@ step1_build_docker_image() {
     mkdir -p srv
 
     print_status "Step 1 completed successfully!"
-}    
+}
 
 step2_build_bs_sdk() {
 
@@ -655,7 +655,7 @@ main() {
     # Only prompt for models if we're going to compile them
     if [[ "$SKIP_MODELS" != true ]]; then
          prompt_continue "We will now compile the ONNX models for the Rockchip NPU."
-    fi    
+    fi
 
 
 
