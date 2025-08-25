@@ -20,6 +20,8 @@ A [simple HTML application](https://github.com/brightsign/simple-gaze-detection-
 
 This is an **ALPHA** quality release, intended mostly for educational purposes. This model is not tuned for optimum performance and has had only standard testing.  **NOT RECOMMENDED FOR PRODUCTION USE**.
 
+# Building the BSMP Extension
+
 ## 🚀 Quick Start (Complete Automated Workflow)
 
 **Total Time**: 60-90 minutes | **Prerequisites**: Docker, git, x86_64 Linux host
