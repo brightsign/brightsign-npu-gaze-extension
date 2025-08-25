@@ -16,6 +16,11 @@ It can be installed just like any other BrightSign firmware upgrade:  copy it to
 
 A [simple HTML application](https://github.com/brightsign/simple-gaze-detection-html/tree/main) demonstrating the gaze detection BSMP is available for demonstration purposes.
 
+## Release Status
+
+This is an **ALPHA** quality release, intended mostly for educational purposes. This model is not tuned for optimum performance and has had only standard testing.  **NOT RECOMMENDED FOR PRODUCTION USE**.
+>>>>>>> 1be0d2ca909b6c1ebcc238f7acdd3be3c591eade
+
 ## 🚀 Quick Start (Complete Automated Workflow)
 
 **Total Time**: 60-90 minutes | **Prerequisites**: Docker, git, x86_64 Linux host
@@ -221,6 +226,32 @@ Benefits:
 ./build --help                 # See all build options
 ./build --clean brightsign-sdk # Clean SDK rebuild
 ```
+### Image Stream Server
+
+The **BrightSign Image Stream Server** is a built-in networking feature that serves camera frames over HTTP. Image Stream Server will start along with voice detection extension as a standalone daemon running in the background.The bs-image-stream-server continuously monitors a local image file by gaze detection and serves it via HTTP at 30 FPS. It specifically watches /tmp/output.jpg since that is where the BSMP files write their output.
+
+This is intended for development and testing purposes only.
+
+Enable or disable the image stream server using the registry options:
+
+**Configuration Options:**
+
+| Port Value | Behavior |
+|------------|----------|
+| `0` | **Disabled** - Image stream server is turned off (recommended for this extension) |
+| `20200` | **Default** - Serves camera feed at `http://player-ip:20200/image_stream.jpg` |
+
+**Usage Examples:**
+```bash
+# Disable image stream server
+registry write networking bs-image-stream-server-port 0
+
+# Enable on default port 20200
+registry write networking bs-image-stream-server-port 20200
+
+```
+
+> **Note**: Changes to the image stream server port require a player reboot to take effect.
 
 ### Troubleshooting
 

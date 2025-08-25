@@ -1,0 +1,337 @@
+#!/bin/bash
+
+# BrightSign Gaze Detection - RetinaFace Model Compilation Script
+# Compiles RetinaFace ONNX model to RKNN format using rknn_tk2 Docker container
+
+set -e
+
+# Check if running as root, which can cause permission issues.
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: This script must not be run as root. Please run as a regular user."
+    exit 1
+fi
+
+# get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default values
+PLATFORM=""
+CLEAN=false
+QUIET=false
+VERBOSE=false
+BUILD_CONTAINER=false
+
+# Platform configurations
+declare -A PLATFORMS=(
+    ["XT5"]="rk3588"
+    ["LS5"]="rk3568"
+    ["Firebird"]="rk3576"
+)
+
+# Model configuration
+MODEL_NAME="RetinaFace_mobile320.onnx"
+OUTPUT_NAME="RetinaFace.rknn"
+MODEL_DIR="RetinaFace"
+
+usage() {
+    echo "Usage: $0 [OPTIONS] [PLATFORM]"
+    echo "Compile RetinaFace model to RKNN format for BrightSign players"
+    echo ""
+    echo "Arguments:"
+    echo "  PLATFORM            Target platform: XT5, LS5, Firebird (default: all)"
+    echo ""
+    echo "Options:"
+    echo "  -c, --clean         Clean model directories before compilation"
+    echo "  -q, --quiet         Use quieter build output"
+    echo "  -v, --verbose       Enable verbose output"
+    echo "  --build-container   Build rknn_tk2 Docker container first"
+    echo "  -h, --help          Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                      # Compile model for all platforms"
+    echo "  $0 XT5                  # Compile model for XT5/RK3588"
+    echo "  $0 --clean LS5          # Clean and compile for LS5/RK3568"
+    echo "  $0 --build-container    # Build Docker container first"
+    echo ""
+    echo "Prerequisites:"
+    echo "  1. Docker must be installed and running"
+    echo "  2. Run model download in toolkit/rknn_model_zoo/examples/RetinaFace/model"
+    echo "  3. Ensure toolkit/rknn_model_zoo directory exists"
+    echo ""
+    echo "Platform mappings:"
+    echo "  XT5      -> RK3588 (XT1145, XT2145 players)"
+    echo "  LS5      -> RK3568 (LS445 players)"
+    echo "  Firebird -> RK3576 (development boards)"
+    echo ""
+    echo "The RetinaFace model is used for face detection in gaze analysis."
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--clean)
+            CLEAN=true
+            shift
+            ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        --build-container)
+            BUILD_CONTAINER=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            if [ -z "$PLATFORM" ]; then
+                if [ -n "${PLATFORMS[$1]}" ]; then
+                    PLATFORM="$1"
+                else
+                    echo "Unknown platform: $1"
+                    echo "Valid platforms: ${!PLATFORMS[@]}"
+                    exit 1
+                fi
+            else
+                echo "Too many arguments specified."
+                usage
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log() {
+    if [ "$QUIET" != true ]; then
+        echo -e "${BLUE}[COMPILE-MODELS] $1${NC}"
+    fi
+}
+
+warn() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+error() {
+    echo -e "${RED}❌ $1${NC}"
+    exit 1
+}
+
+success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+# Check prerequisites
+check_prerequisites() {
+    log "Checking prerequisites..."
+    
+    # Check if Docker is available
+    if ! command -v docker &> /dev/null; then
+        error "Docker is required but not installed. Please install Docker first."
+    fi
+    
+    # Check if Docker daemon is running
+    if ! docker info &> /dev/null; then
+        error "Docker daemon is not running. Please start Docker."
+    fi
+    
+    # Check if toolkit directory exists
+    if [ ! -d "toolkit/rknn_model_zoo" ]; then
+        error "RKNN model zoo not found. Please clone the toolkit first:
+       mkdir -p toolkit && cd toolkit
+       git clone https://github.com/airockchip/rknn-toolkit2.git --depth 1 --branch v2.3.0
+       git clone https://github.com/airockchip/rknn_model_zoo.git --depth 1 --branch v2.3.0"
+    fi
+    
+    # Check if RetinaFace ONNX model exists
+    if [ ! -f "toolkit/rknn_model_zoo/examples/${MODEL_DIR}/model/${MODEL_NAME}" ]; then
+        error "RetinaFace ONNX model not found at toolkit/rknn_model_zoo/examples/${MODEL_DIR}/model/${MODEL_NAME}
+       Please download the model:
+       cd toolkit/rknn_model_zoo/examples/RetinaFace/model
+       chmod +x ./download_model.sh && ./download_model.sh"
+    fi
+    
+    success "Prerequisites check passed"
+}
+
+# Build rknn_tk2 Docker container
+build_container() {
+    log "Building rknn_tk2 Docker container..."
+    
+    # Check if Dockerfile exists
+    if [ ! -f "toolkit/rknn-toolkit2/rknn-toolkit2/docker/docker_file/ubuntu_20_04_cp38/Dockerfile_ubuntu_20_04_for_cp38" ]; then
+        error "Dockerfile not found. Please ensure toolkit is properly cloned."
+    fi
+    
+    cd toolkit/rknn-toolkit2/rknn-toolkit2/docker/docker_file/ubuntu_20_04_cp38
+    
+    # Build the Docker container
+    docker build --rm -t rknn_tk2 -f Dockerfile_ubuntu_20_04_for_cp38 . || error "Failed to build rknn_tk2 container"
+    
+    cd "${SCRIPT_DIR}"
+    success "rknn_tk2 Docker container built successfully"
+}
+
+# Compile model for specific platform
+compile_model() {
+    local platform=$1
+    local soc=${PLATFORMS[$platform]}
+    local soc_upper=${soc^^}
+    
+    log "Compiling RetinaFace for $platform (SOC: $soc)..."
+    
+    # Change to model zoo directory
+    cd toolkit/rknn_model_zoo
+    
+    # Create output directories
+    mkdir -p "examples/${MODEL_DIR}/model/${soc_upper}"
+    
+    # Clean if requested
+    if [ "$CLEAN" = true ]; then
+        log "Cleaning RetinaFace model directory for ${soc_upper}..."
+        rm -rf "examples/${MODEL_DIR}/model/${soc_upper}"/*
+    fi
+    
+    # Run Docker compilation
+    local docker_cmd="docker run -it --rm -v \$(pwd):/zoo rknn_tk2 /bin/bash \
+        -c \"cd /zoo/examples/${MODEL_DIR}/python && python convert.py ../model/${MODEL_NAME} ${soc} i8 ../model/${soc_upper}/${OUTPUT_NAME}\""
+    
+    if [ "$VERBOSE" = true ]; then
+        log "Running Docker command: $docker_cmd"
+    fi
+    
+    if [ "$QUIET" = true ]; then
+        eval "$docker_cmd > /dev/null 2>&1" || error "Failed to compile RetinaFace for $platform"
+    else
+        eval "$docker_cmd" || error "Failed to compile RetinaFace for $platform"
+    fi
+    
+    # Check if compilation succeeded
+    if [ -f "examples/${MODEL_DIR}/model/${soc_upper}/${OUTPUT_NAME}" ]; then
+        success "RetinaFace compiled successfully for $platform"
+    else
+        error "Compilation failed - ${OUTPUT_NAME} not found"
+    fi
+    
+    cd "${SCRIPT_DIR}"
+}
+
+# Copy models to install directories
+copy_models() {
+    log "Copying compiled models to install directories..."
+    
+    cd toolkit/rknn_model_zoo
+    
+    for platform in "${!PLATFORMS[@]}"; do
+        local soc=${PLATFORMS[$platform]}
+        local soc_upper=${soc^^}
+        
+        # Skip if model doesn't exist for this platform
+        if [ ! -f "examples/${MODEL_DIR}/model/${soc_upper}/${OUTPUT_NAME}" ]; then
+            continue
+        fi
+        
+        # Create install directory
+        mkdir -p "../../install/${soc_upper}/model"
+        
+        # Copy model
+        cp "examples/${MODEL_DIR}/model/${soc_upper}/${OUTPUT_NAME}" "../../install/${soc_upper}/model/"
+        
+        log "Copied RetinaFace model to install/${soc_upper}/model/"
+    done
+    
+    cd "${SCRIPT_DIR}"
+    success "Models copied to install directories"
+}
+
+# Main compilation function
+main() {
+    echo "BrightSign Gaze Detection - RetinaFace Model Compilation"
+    echo "========================================================="
+    
+    start_time=$(date +%s)
+    
+    check_prerequisites
+    
+    # Build container if requested
+    if [ "$BUILD_CONTAINER" = true ]; then
+        build_container
+    fi
+    
+    # Check if rknn_tk2 container exists
+    if ! docker images | grep -q "^rknn_tk2 "; then
+        warn "rknn_tk2 Docker image not found. Building it now..."
+        build_container
+    fi
+    
+    # Determine which platforms to compile for
+    if [ -n "$PLATFORM" ]; then
+        log "Compiling RetinaFace for $PLATFORM..."
+        compile_model "$PLATFORM"
+    else
+        log "Compiling RetinaFace for all platforms..."
+        for platform in "${!PLATFORMS[@]}"; do
+            compile_model "$platform"
+        done
+    fi
+    
+    # Copy models to install directories
+    copy_models
+    
+    end_time=$(date +%s)
+    duration=$((end_time - start_time))
+    
+    echo ""
+    success "Model compilation completed in $(($duration / 60))m $(($duration % 60))s"
+    
+    echo ""
+    echo "Compiled models:"
+    for platform in "${!PLATFORMS[@]}"; do
+        local soc=${PLATFORMS[$platform]}
+        local soc_upper=${soc^^}
+        local install_dir="install/${soc_upper}/model"
+        
+        if [ -f "$install_dir/${OUTPUT_NAME}" ]; then
+            echo "  $platform (${soc_upper}):"
+            echo "    ✓ RetinaFace: $install_dir/${OUTPUT_NAME}"
+            local size=$(du -h "$install_dir/${OUTPUT_NAME}" | cut -f1)
+            echo "      Size: $size"
+        fi
+    done
+    
+    echo ""
+    echo "Next steps:"
+    echo "1. Build the SDK if not already done"
+    echo "2. Build C++ application for target platforms"
+    echo "3. Package the extension for deployment"
+    echo ""
+    echo "Example build commands:"
+    echo "  # Build for XT-5"
+    echo "  source ./sdk/environment-setup-aarch64-oe-linux"
+    echo "  mkdir -p build_xt5 && cd build_xt5"
+    echo "  cmake .. -DOECORE_TARGET_SYSROOT=\"\${OECORE_TARGET_SYSROOT}\" -DTARGET_SOC=\"rk3588\""
+    echo "  make && make install"
+}
+
+# Run main function if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

@@ -17,31 +17,6 @@ AUTO_MODE=false
 SKIP_ARCH_CHECK=false
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -auto|--auto)
-            AUTO_MODE=true
-            shift
-            ;;
-        --skip-arch-check)
-            SKIP_ARCH_CHECK=true
-            shift
-            ;;
-        -h|--help)
-            echo "Usage: $0 [-auto|--auto] [--skip-arch-check]"
-            echo "  -auto: Run all steps without prompting for confirmation"
-            echo "  --skip-arch-check: Skip x86_64 architecture check (for testing)"
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Use -h for help"
-            exit 1
-            ;;
-    esac
-done
-
 # Function to print colored output
 print_status() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -70,9 +45,9 @@ prompt_continue() {
     echo -e "\n${YELLOW}NEXT STEPS:${NC}"
     echo "$message"
     echo
-    read -p "Do you want to continue? (y/N): " -n 1 -r
+    read -p "Do you want to continue? (y/N): " -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $REPLY =~ ^[Yy]([Ee][Ss])?$ ]]; then
         print_status "Exiting..."
         exit 0
     fi
@@ -90,6 +65,201 @@ check_docker_running() {
         exit 1
     fi
 }
+
+# Function to cleanup all generated files and directories
+cleanup_all() {
+    print_header "CLEANUP: Removing all generated files and directories"
+    
+    print_warning "This will remove ALL generated files including:"
+    print_warning "- Downloaded BrightSign OS source files"
+    print_warning "- Extracted directories (brightsign-oe)"
+    print_warning "- Docker images (bsoe-build, rknn_tk2)"
+    print_warning "- Build directories (build_xt5, build_ls5)"
+    print_warning "- SDK installation (sdk directory)"
+    print_warning "- Toolkit repositories (toolkit directory)"
+    print_warning "- Generated packages (*.zip files)"
+    print_warning "- Install directory contents"
+    
+    if [ "$AUTO_MODE" != true ]; then
+        echo
+        read -p "Are you sure you want to proceed with cleanup? This cannot be undone! (y/N): " -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]([Ee][Ss])?$ ]]; then
+            print_status "Cleanup cancelled."
+            return 0
+        fi
+    fi
+    
+    cd "$PROJECT_ROOT"
+    
+    # Remove downloaded source files
+    print_status "Removing downloaded source files..."
+    rm -f brightsign-*.tar.gz
+    rm -f brightsign-x86_64-cobra-toolchain-*.sh
+    rm -f Dockerfile
+    
+    # Remove extracted directories
+    print_status "Removing extracted directories..."
+    if [ -d "brightsign-oe" ]; then
+        # First try to make files writable and remove build artifacts
+        if [ -d "brightsign-oe/build" ]; then
+            print_status "Cleaning build artifacts..."
+            if ! chmod -R u+w brightsign-oe/build 2>/dev/null; then
+                print_warning "Could not make build files writable - some files may be owned by root (from Docker)"
+            fi
+            if ! rm -rf brightsign-oe/build 2>/dev/null; then
+                print_warning "Could not remove brightsign-oe/build directory - trying with sudo..."
+                if command_exists sudo; then
+                    sudo rm -rf brightsign-oe/build 2>/dev/null || print_warning "Failed to remove build directory even with sudo"
+                else
+                    print_warning "No sudo available - build directory may remain"
+                fi
+            fi
+        fi
+        # Remove the entire directory with better error reporting
+        if ! chmod -R u+w brightsign-oe 2>/dev/null; then
+            print_warning "Could not make all brightsign-oe files writable"
+        fi
+        
+        if ! rm -rf brightsign-oe 2>/dev/null; then
+            print_warning "Could not remove brightsign-oe directory completely"
+            print_warning "This is often due to Docker-created files with root ownership"
+            print_warning "You may need to run: sudo rm -rf brightsign-oe"
+            
+            # Try to remove what we can and report what's left
+            remaining_files=$(find brightsign-oe -type f 2>/dev/null | wc -l)
+            remaining_dirs=$(find brightsign-oe -type d 2>/dev/null | wc -l)
+            if [ "$remaining_files" -gt 0 ] || [ "$remaining_dirs" -gt 1 ]; then
+                print_warning "Remaining: $remaining_files files in $remaining_dirs directories"
+            fi
+        fi
+    fi
+    
+    # Remove build directories
+    print_status "Removing build directories..."
+    rm -rf build_xt5
+    rm -rf build_ls5
+    
+    # Remove SDK installation
+    print_status "Removing SDK installation..."
+    rm -rf sdk
+    
+    # Remove toolkit repositories
+    print_status "Removing toolkit repositories..."
+    rm -rf toolkit
+    
+    # Remove generated packages
+    print_status "Removing generated packages..."
+    rm -f gaze-dev-*.zip
+    rm -f gaze-demo-*.zip
+    
+    # Clean install directory (but keep the directory itself)
+    print_status "Cleaning install directory..."
+    if [ -d "install" ]; then
+        rm -rf install/RK3568
+        rm -rf install/RK3588
+        rm -f install/bsext_init
+        rm -f install/uninstall.sh
+    fi
+    
+    # Remove srv directory
+    print_status "Removing srv directory..."
+    rm -rf srv
+    
+    # Remove Docker images
+    print_status "Removing Docker images..."
+    if command_exists docker && docker info >/dev/null 2>&1; then
+        # Handle bsoe-build image and containers
+        if docker images | grep -q "bsoe-build"; then
+            print_status "Removing bsoe-build Docker image..."
+            
+            # Check for containers using this image
+            containers=$(docker ps -a --filter ancestor=bsoe-build --format "{{.ID}}" 2>/dev/null)
+            if [ -n "$containers" ]; then
+                print_status "Found containers using bsoe-build image, removing them first..."
+                echo "$containers" | while read -r container_id; do
+                    if [ -n "$container_id" ]; then
+                        print_status "Stopping container: $container_id"
+                        docker stop "$container_id" 2>/dev/null || print_warning "Failed to stop container $container_id"
+                        print_status "Removing container: $container_id"
+                        docker rm "$container_id" 2>/dev/null || print_warning "Failed to remove container $container_id"
+                    fi
+                done
+            fi
+            
+            # Now try to remove the image
+            if ! docker rmi bsoe-build 2>/dev/null; then
+                print_warning "Failed to remove bsoe-build image after container cleanup"
+                print_warning "Try manually: docker images | grep bsoe-build"
+            fi
+        fi
+        
+        # Handle rknn_tk2 image and containers  
+        if docker images | grep -q "rknn_tk2"; then
+            print_status "Removing rknn_tk2 Docker image..."
+            
+            # Check for containers using this image
+            containers=$(docker ps -a --filter ancestor=rknn_tk2 --format "{{.ID}}" 2>/dev/null)
+            if [ -n "$containers" ]; then
+                print_status "Found containers using rknn_tk2 image, removing them first..."
+                echo "$containers" | while read -r container_id; do
+                    if [ -n "$container_id" ]; then
+                        print_status "Stopping container: $container_id"
+                        docker stop "$container_id" 2>/dev/null || print_warning "Failed to stop container $container_id"
+                        print_status "Removing container: $container_id"
+                        docker rm "$container_id" 2>/dev/null || print_warning "Failed to remove container $container_id"
+                    fi
+                done
+            fi
+            
+            # Now try to remove the image
+            if ! docker rmi rknn_tk2 2>/dev/null; then
+                print_warning "Failed to remove rknn_tk2 image after container cleanup"
+                print_warning "Try manually: docker images | grep rknn_tk2"
+            fi
+        fi
+    else
+        print_warning "Docker not available - skipping Docker image cleanup"
+        if ! command_exists docker; then
+            print_warning "Docker command not found"
+        else
+            print_warning "Docker daemon not running - try: sudo systemctl start docker"
+        fi
+    fi
+    
+    print_status "Cleanup completed successfully!"
+    print_status "The project directory has been reset to its initial state."
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -auto|--auto)
+            AUTO_MODE=true
+            shift
+            ;;
+        --skip-arch-check)
+            SKIP_ARCH_CHECK=true
+            shift
+            ;;
+        -c|--clean)
+            cleanup_all
+            exit 0
+            ;;
+        -h|--help)
+            echo "Usage: $0 [-auto|--auto] [--skip-arch-check] [--clean]"
+            echo "  -auto: Run all steps without prompting for confirmation"
+            echo "  --skip-arch-check: Skip x86_64 architecture check (for testing)"
+            echo "  --clean: Remove all generated files, directories, and Docker images"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h for help"
+            exit 1
+            ;;
+    esac
+done
 
 # STEP 0: Setup
 step0_setup() {
@@ -160,16 +330,10 @@ step0_setup() {
     export BRIGHTSIGN_OS_VERSION=${BRIGHTSIGN_OS_MAJOR_VERSION}.${BRIGHTSIGN_OS_MINOR_VERSION}
     
     # Download BrightSign OS source if not already downloaded
-    if [ ! -f "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz" ]; then
+    if [ ! -d "brightsign-oe" ]; then
         print_status "Downloading BrightSign OS source..."
         wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERSION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
         wget "https://brightsignbiz.s3.amazonaws.com/firmware/opensource/${BRIGHTSIGN_OS_MAJOR_VERSION}/${BRIGHTSIGN_OS_VERSION}/brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
-    else
-        print_status "BrightSign OS source already downloaded"
-    fi
-
-    # Extract if not already extracted
-    if [ ! -d "brightsign-oe" ]; then
         print_status "Extracting BrightSign OS source..."
         tar -xzf "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
         tar -xzf "brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
@@ -181,7 +345,7 @@ step0_setup() {
         rm "brightsign-${BRIGHTSIGN_OS_VERSION}-src-dl.tar.gz"
         rm "brightsign-${BRIGHTSIGN_OS_VERSION}-src-oe.tar.gz"
     else
-        print_status "BrightSign OS source already extracted"
+        print_status "BrightSign OS source already downloaded"
     fi
 
     # Build SDK in Docker
@@ -359,15 +523,15 @@ step4_package() {
     
     # Create production extension
     ../sh/make-extension-lvm
-    rm -f ../gaze-demo-*.zip
-    zip "../gaze-demo-$(date +%s).zip" ext_npu_gaze*
+    rm -f ../gaze-ext-*.zip
+    zip "../gaze-ext-$(date +%s).zip" ext_npu_gaze*
     rm -rf ext_npu_gaze*
 
     cd "$project_root"
     
     print_status "Step 4 completed successfully!"
     print_status "Development package: gaze-dev-*.zip"
-    print_status "Production extension: gaze-demo-*.zip"
+    print_status "Production extension: gaze-ext-*.zip"
 }
 
 # Main execution
@@ -402,7 +566,7 @@ main() {
     print_status "All steps completed successfully!"
     print_status "Check the install directory for the built files"
     print_status "Development package: gaze-dev-*.zip"
-    print_status "Production extension: gaze-demo-*.zip"
+    print_status "Production extension: gaze-ext-*.zip"
     
     print_warning "Don't forget to unsecure your BrightSign player as described in the README!"
 }

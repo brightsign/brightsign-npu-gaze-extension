@@ -15,6 +15,7 @@
 SCRIPT_PATH=$(dirname $(realpath $0))
 DAEMON_NAME="bsext-gaze"
 PIDFILE="/var/run/${DAEMON_NAME}.pid"
+STREAM_SERVER_PIDFILE="/var/run/bsext-image-stream-server.pid"
 
 # defaults -- these can be overridden by the registry
 DISABLE_AUTO_START=false
@@ -99,6 +100,23 @@ run_attention_demo() {
     fi
 }
 
+run_stream_server() {
+    # Default to running in foreground
+    echo "run_stream_server called with background=$2"
+    local background=$1
+    local port=$2
+    echo "run_stream_server called with port=${port}"
+    if [ "$background" = "true" ]; then
+        # Run as a daemon in the background
+        echo "start-stop daemon =${SOC_HOME}/image-stream-server"
+        start-stop-daemon --start --background --make-pidfile --pidfile ${STREAM_SERVER_PIDFILE} \
+                          --exec ${SOC_HOME}/image-stream-server -- -port ${port}
+    else
+        # Run directly in foreground
+        ${SOC_HOME}/image-stream-server -port ${port}
+    fi
+}
+
 do_start() {
     # check registry for auto-start
     reg_disable_auto_start=$(registry extension ${DAEMON_NAME}-disable-auto-start)
@@ -113,11 +131,28 @@ do_start() {
 
     # Start the attention_demo process as a daemon
     run_attention_demo true
+
+    STREAM_SERVER_PORT=20200  # default port for image stream server
+    reg_stream_server_port=$(registry networking bs-image-stream-server-port)
+    echo "Starting image stream server on port ${reg_stream_server_port}"
+    if [ -n "${reg_stream_server_port}" ]; then
+        STREAM_SERVER_PORT=${reg_stream_server_port}
+    fi
+
+    if [ "${STREAM_SERVER_PORT}" = "0" ]; then
+        echo "Image stream server is disabled (port set to 0)"
+        return
+    fi
+    # Start the image stream server process as a daemon
+    run_stream_server true ${STREAM_SERVER_PORT}
 }
 
 do_stop() {
     start-stop-daemon --stop --pidfile ${PIDFILE}
     rm -f ${PIDFILE}
+
+    start-stop-daemon --stop --pidfile ${STREAM_SERVER_PIDFILE}
+    rm -f ${STREAM_SERVER_PIDFILE}
 }
 
 case "$1" in
@@ -138,6 +173,7 @@ case "$1" in
         echo "Running ${DAEMON_NAME} in foreground"
         # Run directly in foreground (not as daemon)
         run_attention_demo false
+        run_stream_server false 20200
         ;;
     *)
         echo "Usage: $0 {start|stop|restart|run}"

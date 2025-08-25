@@ -1,0 +1,109 @@
+{
+  "_comment": "BrightSign Extension Manifest Configuration Template",
+  "_instructions": [
+    "1. Copy this file to 'manifest-config.json'",
+    "2. Fill in your extension's information",
+    "3. The package script will automatically generate the full manifest.json",
+    "4. Version should follow semantic versioning: MAJOR.MINOR.PATCH"
+  ],
+  
+  "extension": {
+    "version": "1.0.0",
+    "description": "NPU-accelerated gaze detection using RetinaFace model",
+    "author": {
+      "name": "Your Name or Organization",
+      "email": "support@example.com",
+      "url": "https://example.com"
+    },
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/brightsign/brightsign-npu-gaze-extension",
+    "category": "ai-vision"
+  },
+  
+  "compatibility": {
+    "osVersion": {
+      "min": "9.0.189",
+      "target": "9.1.0",
+      "max": "10.0.0"
+    },
+    "_osVersionNotes": [
+      "min: Minimum BrightSign OS version required (9.0.189 for NPU support)",
+      "target: OS version the extension was developed/tested against",
+      "max: Maximum OS version (optional, omit for no upper limit)"
+    ]
+  },
+  
+  "requirements": {
+    "capabilities": [
+      "camera.usb",
+      "npu.rockchip",
+      "storage.persistent"
+    ],
+    "memory": {
+      "minimum": "512MB",
+      "recommended": "1GB"
+    },
+    "storage": {
+      "installation": "100MB",
+      "runtime": "50MB"
+    },
+    "_requirementsNotes": [
+      "capabilities: Required hardware/software features",
+      "memory: RAM requirements for the extension",
+      "storage: Disk space needed for installation and runtime data"
+    ]
+  },
+  
+  "runtime": {
+    "autoStart": true,
+    "startupDelay": 5,
+    "restartPolicy": "always",
+    "priority": "normal",
+    "_runtimeNotes": [
+      "autoStart: Whether extension starts automatically on boot",
+      "startupDelay: Seconds to wait before starting (0-60)",
+      "restartPolicy: always, on-failure, or never",
+      "priority: low, normal, or high"
+    ]
+  },
+  
+  "registry": {
+    "configurable": [
+      {
+        "key": "video-device",
+        "type": "string",
+        "default": "",
+        "description": "USB camera device path (empty for auto-detect)"
+      },
+      {
+        "key": "disable-auto-start",
+        "type": "boolean",
+        "default": false,
+        "description": "Disable automatic startup of the extension"
+      }
+    ],
+    "_registryNotes": [
+      "Define user-configurable settings accessible via BrightSign registry",
+      "Registry keys will be prefixed with 'bsext-gaze-' automatically"
+    ]
+  },
+  
+  "update": {
+    "policy": "manual",
+    "backupPrevious": true,
+    "preserveConfig": true,
+    "rollbackSupported": true,
+    "minVersionForUpdate": "1.0.0",
+    "maxVersionGap": "2.0.0",
+    "requiresReboot": false,
+    "_updateNotes": [
+      "policy: automatic (allow auto-updates), manual (require approval), blocked (prevent updates)",
+      "backupPrevious: Create backup of previous version before updating",
+      "preserveConfig: Preserve user configuration during updates",
+      "rollbackSupported: Extension supports rollback to previous version",
+      "minVersionForUpdate: Minimum current version required to update to this version",
+      "maxVersionGap: Maximum version gap allowed for direct updates",
+      "requiresReboot: Extension update requires system reboot"
+    ]
+  }
+}
