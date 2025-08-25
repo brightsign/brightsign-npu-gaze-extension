@@ -19,7 +19,6 @@ A [simple HTML application](https://github.com/brightsign/simple-gaze-detection-
 ## Release Status
 
 This is an **ALPHA** quality release, intended mostly for educational purposes. This model is not tuned for optimum performance and has had only standard testing.  **NOT RECOMMENDED FOR PRODUCTION USE**.
->>>>>>> 1be0d2ca909b6c1ebcc238f7acdd3be3c591eade
 
 ## 🚀 Quick Start (Complete Automated Workflow)
 
