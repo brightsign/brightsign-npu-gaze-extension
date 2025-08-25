@@ -347,3 +347,7 @@ To remove the extension, you can perform a Factory Reset or remove the extension
 **🎉 Ready to get started?** Run `./setup` and follow the Quick Start guide above!
 
 For questions or issues, see the troubleshooting section or check the technical documentation.
+
+## Licensing
+
+This project is released under the terms of the [Apache 2.0 License](./LICENSE.txt).
