@@ -1,8 +1,20 @@
-# BrightSign Gaze Detection Extension
+# BrightSign Gaze Detection Extension BSMP
 
-**Automated gaze detection extension for BrightSign Series 5 players using Rockchip NPU acceleration.**
+**Example: Automated gaze detection extension for BrightSign Series 5 players using Rockchip NPU acceleration.**
 
 This project provides a complete, automated build system to create BrightSign extensions that run RetinaFace-based gaze detection on the NPU at real-time performance, detecting faces and determining if people are looking at the screen.
+
+## Use It vs. Build It
+
+If you just want to use this BSMP extension but don't want to build it, you can just download it.
+
+* [cobra-standalone-npu_gaze-0.1.5-alpha.bsfw](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.5-alpha/cobra-standalone-npu_gaze-0.1.5-alpha.bsfw)
+
+It can be installed just like any other BrightSign firmware upgrade:  copy it to an SD card and boot the player with that card inserted.
+
+## Pracical Real-World Example
+
+A [simple HTML application](https://github.com/brightsign/simple-gaze-detection-html/tree/main) demonstrating the gaze detection BSMP is available for demonstration purposes.
 
 ## 🚀 Quick Start (Complete Automated Workflow)
 
@@ -224,7 +236,7 @@ Benefits:
 ```bash
 # Core build system
 ./setup --help                    # Setup and environment options
-./compile-models --help           # Model compilation options  
+./compile-models --help           # Model compilation options
 ./build --help                    # SDK build options
 ./build-apps --help               # Application build options
 ./package --help                  # Packaging options
