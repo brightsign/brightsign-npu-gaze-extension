@@ -22,7 +22,7 @@ This is an **ALPHA** quality release, intended mostly for educational purposes. 
 
 ## Image Streamer Included
 
-For test and debug purposes only, we have included a debug and test tool.  You can access a web page on the player to "see" what the output of the AI model is visually.  It will show "bounding boxes" around objects of interest.  This is started automatically and can be accessed at http://<player ip>:8080 by default.
+For test and debug purposes only, we have included a debug and test tool.  You can access a web page on the player to "see" what the output of the AI model is visually.  It will show "bounding boxes" around objects of interest.  This is started automatically and can be accessed at http://<player ip>:20200 by default.
 
 For more information, please see the [tool documentation](https://github.com/brightsign/bs-image-stream-server).
 
