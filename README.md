@@ -8,7 +8,7 @@ This project provides a complete, automated build system to create BrightSign ex
 
 If you just want to use this BSMP extension but don't want to build it, you can just download it.
 
-* [cobra-standalone-npu_gaze-0.1.5-alpha.bsfw](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.5-alpha/cobra-standalone-npu_gaze-0.1.5-alpha.bsfw)
+* [cobra-standalone-npu_gaze-0.1.6-alpha.bsfw](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.6-alpha/cobra-standalone-npu_gaze-0.1.6-alpha.bsfw)
 
 It can be installed just like any other BrightSign firmware upgrade:  copy it to an SD card and boot the player with that card inserted.
 
