@@ -86,9 +86,9 @@ In a typical development workflow, steps 1-4 (setup, model compilation, build an
 
 | Player | SOC | Platform Code | Status |
 |--------|-----|---------------|---------|
-| XT-5 (XT1145, XT2145) | RK3588 | XT5 | ✅ Production |
-| LS-5 (LS445) | RK3568 | LS5 | ✅ Beta |
-| Firebird | RK3576 | Firebird | 🧪 Development |
+| XT-5 (XT1145, XT2145) | RK3588 | Cobra | ✅ Production |
+| LS-5 (LS445) | RK3568 | Cobra | ✅ Beta |
+| XS-156 | RK3576 | Firebird | 🧪 Alpha |
 
 ### Software Requirements
 
