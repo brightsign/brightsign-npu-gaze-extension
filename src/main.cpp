@@ -35,19 +35,29 @@ void signalHandler(int signum) {
 }
 
 int main(int argc, char **argv) {
+    freopen("/storage/sd/console.log", "a", stdout);
+    std::cout<<"DEBUG: OpenCV build information:\n";
+    std::cout << cv::getBuildInformation() << std::endl; 
     char *model_name = NULL;
     if (argc != 3) {
-        printf("Usage: %s <rknn model> <source> \n", argv[0]);
+        printf("Usage: %s <rknn model> <input_source> \n", argv[0]);
+        printf("\nInput source examples:\n");
+        printf("  USB Camera (device):     /dev/video0\n");
+        printf("  USB Camera (GStreamer):  \"v4l2src device=/dev/video1 ! videoconvert ! video/x-raw,format=BGR ! appsink\"\n");
+        printf("  RTSP Stream:             rtsp://192.168.1.100:554/stream\n");
+        printf("  RTSP with GStreamer:     \"rtspsrc location=rtsp://192.168.1.100:554/stream ! decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink\"\n");
+        printf("  Video File:              /path/to/video.mp4\n");
+        printf("  Test Pattern:            \"videotestsrc ! videoconvert ! video/x-raw,format=BGR ! appsink\"\n");
         return -1;
     }
 
     // The path where the model is located
     model_name = (char *)argv[1];
-    char *source_name = argv[2];
-
+    char *input_source = argv[2];
+    printf("input_source=%s\n", input_source);
     MLInferenceThread mlThread(
         model_name,
-        source_name,
+        input_source,
         resultQueue, 
         running,
         30);
