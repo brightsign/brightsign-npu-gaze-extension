@@ -20,19 +20,57 @@
 #include <rga/im2d.h>
 
 
-// Simple test function to check if GStreamer can access RTSP
-bool test_gstreamer_rtsp_direct(const char* rtsp_url) {
-    printf("DEBUG: Testing direct GStreamer RTSP access (simulated)\n");
+// Test RTSP connectivity with timeout and better error handling
+bool test_rtsp_connectivity(const std::string& rtsp_url, int timeout_seconds = 10) {
+    printf("Testing RTSP connectivity to: %s\n", rtsp_url.c_str());
     
-    // Since we can't use GStreamer command-line tools or direct API,
-    // we'll use gst-transcoder-1.0 to test connectivity
-    std::string test_cmd = "gst-transcoder-1.0 \"" + std::string(rtsp_url) + 
-                          "\" /tmp/rtsp_test_output.null \"video/x-raw\" >/dev/null 2>&1 &";
-    printf("DEBUG: Testing with command simulation (would use GStreamer API in production)\n");
+    // Extract host and port from RTSP URL for basic connectivity test
+    std::string host;
+    int port = 554; // Default RTSP port
     
-    // Since the direct API isn't available, we'll return false for now
-    // This indicates that we need OpenCV with proper GStreamer support
-    return false;
+    size_t start = rtsp_url.find("://");
+    if (start != std::string::npos) {
+        start += 3;
+        size_t end = rtsp_url.find(":", start);
+        if (end != std::string::npos) {
+            host = rtsp_url.substr(start, end - start);
+            size_t port_end = rtsp_url.find("/", end);
+            if (port_end != std::string::npos) {
+                try {
+                    port = std::stoi(rtsp_url.substr(end + 1, port_end - end - 1));
+                } catch (...) {
+                    port = 554; // Fallback to default
+                }
+            }
+        } else {
+            size_t path_start = rtsp_url.find("/", start);
+            if (path_start != std::string::npos) {
+                host = rtsp_url.substr(start, path_start - start);
+            } else {
+                host = rtsp_url.substr(start);
+            }
+        }
+    }
+    
+    if (host.empty()) {
+        printf("ERROR: Could not extract host from RTSP URL\n");
+        return false;
+    }
+    
+    printf("Testing connectivity to host: %s, port: %d\n", host.c_str(), port);
+    
+    // Use netcat or ping for basic connectivity test with timeout
+    std::string test_cmd = "timeout " + std::to_string(timeout_seconds) + 
+                          " nc -z " + host + " " + std::to_string(port) + " 2>/dev/null";
+    int result = system(test_cmd.c_str());
+    
+    if (result == 0) {
+        printf("RTSP server is reachable at %s:%d\n", host.c_str(), port);
+        return true;
+    } else {
+        printf("WARNING: RTSP server connectivity test failed for %s:%d\n", host.c_str(), port);
+        return false;
+    }
 }
 
 
@@ -104,8 +142,42 @@ InferenceResult MLInferenceThread::runInference(cv::Mat& cap) {
 
 static inline bool rdok(const char* p) { return p && access(p, R_OK) == 0; }
 
+static bool validate_gstreamer_environment() {
+    bool valid = true;
+    
+    // Check critical GStreamer paths
+    if (!rdok(getenv("GST_PLUGIN_PATH"))) {
+        fprintf(stderr, "ERROR: GST_PLUGIN_PATH not readable: %s\n", 
+                getenv("GST_PLUGIN_PATH") ? getenv("GST_PLUGIN_PATH") : "(null)");
+        valid = false;
+    }
+    
+    if (!rdok(getenv("GST_PLUGIN_SCANNER"))) {
+        fprintf(stderr, "ERROR: GST_PLUGIN_SCANNER not readable: %s\n", 
+                getenv("GST_PLUGIN_SCANNER") ? getenv("GST_PLUGIN_SCANNER") : "(null)");
+        valid = false;
+    }
+    
+    // Check registry directory is writable
+    const char* registry_path = getenv("GST_REGISTRY");
+    if (registry_path) {
+        std::string registry_dir = std::string(registry_path);
+        size_t last_slash = registry_dir.find_last_of('/');
+        if (last_slash != std::string::npos) {
+            registry_dir = registry_dir.substr(0, last_slash);
+            if (access(registry_dir.c_str(), W_OK) != 0) {
+                fprintf(stderr, "WARNING: Registry directory not writable: %s\n", registry_dir.c_str());
+            }
+        }
+    }
+    
+    return valid;
+}
+
 static void ensure_gstreamer_runtime() {
-    // Tell GStreamer where the plugins + scanner live (what you found via SSH)
+    printf("Setting up GStreamer runtime environment...\n");
+    
+    // Tell GStreamer where the plugins + scanner live
     if (!getenv("GST_PLUGIN_PATH"))
         setenv("GST_PLUGIN_PATH", "/usr/lib/gstreamer-1.0", 1);
     if (!getenv("GST_PLUGIN_SCANNER"))
@@ -118,34 +190,54 @@ static void ensure_gstreamer_runtime() {
 
     // Helpful diagnostics
     setenv("OPENCV_VIDEOIO_DEBUG", "1", 1);
-    if (!getenv("GST_DEBUG")) setenv("GST_DEBUG", "3", 0);  // Increased to 3 for more details
+    if (!getenv("GST_DEBUG")) setenv("GST_DEBUG", "2", 0);  // Moderate logging
 
-    fprintf(stderr, "GST_PLUGIN_PATH=%s\n", getenv("GST_PLUGIN_PATH"));
-    fprintf(stderr, "GST_PLUGIN_SCANNER=%s\n", getenv("GST_PLUGIN_SCANNER"));
-    fprintf(stderr, "GST_REGISTRY=%s\n", getenv("GST_REGISTRY"));
+    printf("GStreamer environment:\n");
+    printf("  GST_PLUGIN_PATH=%s\n", getenv("GST_PLUGIN_PATH"));
+    printf("  GST_PLUGIN_SCANNER=%s\n", getenv("GST_PLUGIN_SCANNER"));
+    printf("  GST_REGISTRY=%s\n", getenv("GST_REGISTRY"));
 
-    if (!rdok(getenv("GST_PLUGIN_PATH")))
-        fprintf(stderr, "WARNING: GST_PLUGIN_PATH not readable\n");
-    if (!rdok(getenv("GST_PLUGIN_SCANNER")))
-        fprintf(stderr, "WARNING: GST_PLUGIN_SCANNER not readable\n");
+    // Validate the environment
+    if (!validate_gstreamer_environment()) {
+        fprintf(stderr, "WARNING: GStreamer environment validation failed\n");
+    } else {
+        printf("GStreamer environment validation passed\n");
+    }
 }
 
-// Build a few RTSP pipelines (Rockchip HW -> V4L2 HW -> software -> generic)
+// Build robust RTSP pipelines with fallback options
 static std::vector<std::string> build_rtsp_pipelines(const std::string& url) {
-    std::vector<std::string> p;
-    #if 0
-    p.push_back(
-                "rtspsrc location=" + url + " protocols=tcp latency=150 ! "
-                "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! videoscale ! "
-                "video/x-raw,width=320,height=320,format=BGR ! "
-                "appsink drop=1 max-buffers=1 sync=false"
-                );
+    std::vector<std::string> pipelines;
     
-    #endif
-    p.push_back("rtspsrc location=" + url + " protocols=tcp latency=150 ! "
-                "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
-                "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false");
-    return p;
+    // Pipeline 1: Hardware-accelerated with Rockchip MPP decoder
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true ! "
+        "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+    
+    // Pipeline 2: Software decoding fallback
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true ! "
+        "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+    
+    // Pipeline 3: UDP with shorter latency
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=udp latency=100 drop-on-latency=true ! "
+        "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+    
+    // Pipeline 4: Basic pipeline without specific decoder
+    pipelines.push_back(
+        "rtspsrc location=" + url + " latency=200 ! "
+        "decodebin ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+    
+    return pipelines;
 }
 // Optional: turn on useful diagnostics from OpenCV’s GStreamer wrapper and GStreamer itself
 static void enable_gst_debug() {
@@ -182,12 +274,25 @@ static bool any_interface_has_ip(std::string &iface_out, std::string &ip_out) {
     return found;
 }
 
-static void wait_for_network_generic(int retries = 30, int delay_sec = 2) {
+static void wait_for_network_with_validation(int retries = 30, int delay_sec = 2) {
+    printf("Waiting for network connectivity...\n");
+    
     for (int i = 0; i < retries; i++) {
         std::string iface, ip;
         if (any_interface_has_ip(iface, ip)) {
-            printf("Network is up: interface %s has IP %s\n", iface.c_str(), ip.c_str());
-            return;
+            printf("Network interface %s has IP %s\n", iface.c_str(), ip.c_str());
+            
+            // Additional validation: test external connectivity
+            printf("Testing external connectivity...\n");
+            int ping_result = system("ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1");
+            if (ping_result == 0) {
+                printf("External connectivity confirmed\n");
+                return;
+            } else {
+                printf("External connectivity test failed, but local network is up\n");
+                // Still return as local network might be sufficient for RTSP
+                return;
+            }
         }
         printf("Waiting for network (attempt %d/%d)...\n", i+1, retries);
         std::this_thread::sleep_for(std::chrono::seconds(delay_sec));
@@ -228,17 +333,21 @@ MLInferenceThread::MLInferenceThread(
     : resultQueue(queue), running(isRunning), target_fps(target_fps) {
 
 
-    // Create and initialize the model
-    // rknn_app_context_t rknn_app_ctx;
+    printf("Initializing ML model from: %s\n", model_path);
+    
+    // Create and initialize the model with error checking
     memset(&rknn_app_ctx, 0, sizeof(rknn_app_ctx));
     auto ret = init_retinaface_model(model_path, &rknn_app_ctx);
-       if (ret != 0) {
-        printf("init_retinaface_model fail! ret=%d model_path=%s\n", ret, model_path);
-        // return -1;
+    if (ret != 0) {
+        printf("ERROR: Failed to initialize RetinaFace model! ret=%d model_path=%s\n", ret, model_path);
+        printf("This will prevent inference from running properly.\n");
+        // Don't return here, allow video capture to work even if model fails
+    } else {
+        printf("✓ RetinaFace model initialized successfully\n");
     }
 
     printf("Waiting for network before opening RTSP...\n");
-    wait_for_network_generic();
+    wait_for_network_with_validation();
 
     // open the capture with appropriate backend based on source type
     printf("Opening capture from source: %s\n", input_source);
@@ -291,70 +400,53 @@ MLInferenceThread::MLInferenceThread(
                 }
             }
         }
-        // If it's an RTSP URL, try multiple approaches
+        // If it's an RTSP URL, try multiple approaches with better error handling
         else if (strstr(input_source, "rtsp://") || strstr(input_source, "rtsps://")) {
+            printf("Detected RTSP URL: %s\n", input_source);
             ensure_gstreamer_runtime();
 
-            // Quick network connectivity test
-            printf("Testing basic network connectivity to RTSP server...\n");
-            std::string host = std::string(input_source);
-            size_t start = host.find("://") + 3;
-            size_t end = host.find(":", start);
-            if (end != std::string::npos) {
-                std::string server_ip = host.substr(start, end - start);
-                printf("Extracted server IP: %s\n", server_ip.c_str());
-                
-                std::string ping_cmd = "ping -c 1 " + server_ip + " >/dev/null 2>&1";
-                int ping_result = system(ping_cmd.c_str());
-                if (ping_result == 0) {
-                    printf("Server %s is reachable\n", server_ip.c_str());
-                } else {
-                    printf("WARNING: Server %s ping failed (may not respond to ping)\n", server_ip.c_str());
-                    printf("Network connectivity test failed - continuing anyway\n");
-                }
+            // Test RTSP connectivity before attempting to open
+            if (!test_rtsp_connectivity(input_source, 10)) {
+                printf("WARNING: RTSP connectivity test failed, but continuing anyway...\n");
             }
 
-            printf("Detected RTSP URL, opening with GStreamer…\n");
-            auto pipes = build_rtsp_pipelines(input_source);
+            printf("Opening RTSP stream with GStreamer pipelines...\n");
+            auto pipelines = build_rtsp_pipelines(input_source);
 
-            for (size_t i = 0; i < pipes.size(); ++i) {
-                printf("Trying GST pipeline %zu: %s\n", i+1, pipes[i].c_str());
-                if (capture.open(pipes[i], cv::CAP_GSTREAMER)) {
-                    printf("Opened RTSP with pipeline %zu\n", i+1);
+            for (size_t i = 0; i < pipelines.size(); ++i) {
+                printf("Trying pipeline %zu/%zu: %s\n", i+1, pipelines.size(), pipelines[i].c_str());
+                
+                // Try opening with timeout
+                auto start_time = std::chrono::steady_clock::now();
+                if (capture.open(pipelines[i], cv::CAP_GSTREAMER)) {
+                    auto end_time = std::chrono::steady_clock::now();
+                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                    printf("✓ Pipeline %zu opened successfully in %ld ms\n", i+1, duration.count());
                     capture_opened = true;
                     break;
                 } else {
-                    printf("Pipeline %zu failed\n", i+1);
-                    capture_opened = false;
+                    auto end_time = std::chrono::steady_clock::now();
+                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+                    printf("✗ Pipeline %zu failed after %ld ms\n", i+1, duration.count());
                 }
             }
 
+            // Fallback: try simple RTSP URL without complex pipeline
             if (!capture_opened) {
-                printf("All RTSP complex pipelines failed. Trying simple RTSP URL...\n");
-                fflush(stdout);
-                
-                // Try the simple RTSP URL directly - all plugins are confirmed available
-                printf("Testing simple RTSP URL: %s\n", input_source);
+                printf("All complex pipelines failed. Trying simple RTSP URL...\n");
                 if (capture.open(input_source, cv::CAP_GSTREAMER)) {
-                    printf("Simple RTSP URL opened successfully with GStreamer!\n");
+                    printf("✓ Simple RTSP URL opened successfully!\n");
                     capture_opened = true;
                 } else {
-                    printf("Simple RTSP URL failed with GStreamer, trying default backend...\n");
+                    printf("✗ Simple RTSP URL also failed\n");
+                    
+                    // Final fallback: try with default backend
+                    printf("Trying RTSP with default OpenCV backend...\n");
                     if (capture.open(input_source)) {
-                        printf("Simple RTSP URL opened with default backend!\n");
+                        printf("✓ RTSP opened with default backend!\n");
                         capture_opened = true;
                     } else {
-                        printf("RTSP connection failed - all methods exhausted\n");
-                        
-                        // Check if this might be a network issue
-                        printf("Debugging: Checking if OpenCV was built with GStreamer support...\n");
-                        cv::VideoCapture test_cap;
-                        cv::String version = cv::getBuildInformation();
-                        if (version.find("GStreamer") != std::string::npos) {
-                            printf("OpenCV was built WITH GStreamer support\n");
-                        } else {
-                            printf("OpenCV was built WITHOUT GStreamer support\n");
-                        }
+                        printf("✗ All RTSP connection attempts failed\n");
                     }
                 }
             }
@@ -418,77 +510,98 @@ MLInferenceThread::~MLInferenceThread() {
 }
 
 void MLInferenceThread::operator()() {
+    int consecutive_failures = 0;
+    const int max_consecutive_failures = 10;
+    const int retry_delay_ms = 100;
+    
     while (running) {
         if (!capture.isOpened()) {
-            printf("Capture is not opened\n");
+            printf("Capture is not opened, exiting thread\n");
             break;
         }
 
         auto frame_start_time = std::chrono::steady_clock::now();
         
-        printf("Reading frame from capture\n");
         cv::Mat captured_img;
-
-        using clk = std::chrono::steady_clock;
-        using usec = std::chrono::microseconds;
-
-        auto t_resize_start = clk::now();
-        auto t_resize_end   = t_resize_start;
-
-        try {
-            if (!capture.read(captured_img)) {
-                printf("Failed to read frame from capture\n");
+        bool frame_read_success = false;
+        
+        // Retry frame reading with exponential backoff
+        for (int retry = 0; retry < 3 && !frame_read_success; retry++) {
+            try {
+                if (capture.read(captured_img) && !captured_img.empty()) {
+                    frame_read_success = true;
+                    consecutive_failures = 0; // Reset failure counter
+                    printf("Frame read successfully: %dx%d (attempt %d)\n", 
+                           captured_img.cols, captured_img.rows, retry + 1);
+                } else {
+                    printf("Failed to read frame (attempt %d/3)\n", retry + 1);
+                    if (retry < 2) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
+                    }
+                }
+            } catch (const cv::Exception& e) {
+                printf("OpenCV exception during frame read (attempt %d/3): %s\n", retry + 1, e.what());
+                if (retry < 2) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
+                }
+            } catch (const std::exception& e) {
+                printf("Standard exception during frame read (attempt %d/3): %s\n", retry + 1, e.what());
+                if (retry < 2) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
+                }
+            } catch (...) {
+                printf("Unknown exception during frame read (attempt %d/3)\n", retry + 1);
+                if (retry < 2) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
+                }
+            }
+        }
+        
+        if (!frame_read_success) {
+            consecutive_failures++;
+            printf("Frame read failed after all retries (consecutive failures: %d/%d)\n", 
+                   consecutive_failures, max_consecutive_failures);
+            
+            if (consecutive_failures >= max_consecutive_failures) {
+                printf("ERROR: Too many consecutive frame read failures, stopping inference thread\n");
                 break;
             }
-            printf("Frame read from capture %d x %d\n", captured_img.size().width, captured_img.size().height);
-
-            // Ensure the captured frame is not empty
-            if (captured_img.empty()) {
-                printf("Captured frame is empty\n");
-                std::this_thread::sleep_for(
-                    std::chrono::milliseconds(1000 / target_fps));
-                continue;
-            }
-        } catch (const cv::Exception& e) {
-            std::cerr << "OpenCV exception caught: " << e.what() << std::endl;
-            printf("Failed to read frame due to OpenCV exception: %s\n", e.what());
-            break;
-        } catch (const std::exception& e) {
-            std::cerr << "Standard exception caught: " << e.what() << std::endl;
-            printf("Failed to read frame due to standard exception: %s\n", e.what());
-            break;
-        } catch (...) {
-            std::cerr << "Unknown exception caught!" << std::endl;
-            printf("Failed to read frame due to unknown exception!\n");
-            break;
+            
+            // Wait before next attempt
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / target_fps));
+            continue;
         }
 
+        // Process the successfully read frame
         cv::Mat resized;
         if (!rga_resize(captured_img, resized, 320, 320)) {
             cv::resize(captured_img, resized, cv::Size(320, 320));
         }
-        t_resize_end = clk::now();
 
         printf("Running inference on frame\n");
         InferenceResult result = runInference(captured_img);
         resultQueue.push(std::move(result));
 
-        // release opencv image
-        cv::imwrite("/tmp/out.jpg", captured_img);
-        captured_img.release();
-        // rename the file
-        std::rename("/tmp/out.jpg", "/tmp/output.jpg");
+        // Save debug image
+        try {
+            cv::imwrite("/tmp/out.jpg", captured_img);
+            std::rename("/tmp/out.jpg", "/tmp/output.jpg");
+        } catch (...) {
+            printf("Warning: Failed to save debug image\n");
+        }
 
+        captured_img.release();
+
+        // FPS limiting with better timing
         auto current_time = std::chrono::steady_clock::now();
-        auto frame_duration = std::chrono::duration_cast<std::chrono::microseconds>
-            (current_time - frame_start_time);
-        // FPS limiting
+        auto frame_duration = std::chrono::duration_cast<std::chrono::microseconds>(current_time - frame_start_time);
         auto frame_interval = std::chrono::milliseconds(1000 / target_fps);
         
         if (frame_interval > frame_duration) {
-            auto sleep_time = std::chrono::duration_cast<std::chrono::milliseconds>
-                (frame_interval - frame_duration);
+            auto sleep_time = std::chrono::duration_cast<std::chrono::milliseconds>(frame_interval - frame_duration);
             std::this_thread::sleep_for(sleep_time);
         }
     }
+    
+    printf("MLInferenceThread main loop exited\n");
 }
