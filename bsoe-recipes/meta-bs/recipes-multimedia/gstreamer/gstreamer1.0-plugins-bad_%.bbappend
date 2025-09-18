@@ -28,7 +28,7 @@ do_install:append() {
 
 # Keep PACKAGECONFIG minimal but don't override completely
 PACKAGECONFIG:remove = " \
-  gl x11 wayland qt5 vulkan nvcodec kms va v4l2codecs \
+  gl x11 wayland qt5 vulkan nvcodec kms va \
   webrtc webrtcdsp sctp \
   openal opencv openjpeg openh264 msdk aom libde265 modplug assrender faac faad fluidsynth \
   dash hls smoothstreaming curl curl-ssh2 rtmp srt srtp \

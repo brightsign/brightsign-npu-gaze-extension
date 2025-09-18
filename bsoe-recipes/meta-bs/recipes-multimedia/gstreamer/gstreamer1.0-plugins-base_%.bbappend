@@ -35,3 +35,4 @@ PACKAGECONFIG:remove = " wayland x11 qt5 vulkan nvcodec sctp webrtc introspectio
 # meta-bs/recipes-multimedia/gstreamer/gstreamer1.0-plugins-base_%.bbappend
 EXTRA_OEMESON:append = " -Dapp=enabled "
 EXTRA_OEMESON:append = " -Dvideoconvertscale=enabled "
+EXTRA_OEMESON:append = " -Dvideoconvert=enabled "

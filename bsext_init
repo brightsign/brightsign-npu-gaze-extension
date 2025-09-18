@@ -24,12 +24,12 @@ DISABLE_AUTO_START=false
 # Priority: Command line args > Registry settings > Auto-discovered RTSP > USB cameras > Default device
 # 
 # Registry settings:
-#   bsext-gaze-rtsp-url    : Full RTSP URL (e.g., rtsp://192.168.0.203:8554/mystream)
-#   bsext-gaze-rtsp-server : RTSP server IP:port (e.g., 192.168.0.203:8554)
+#   bsext-gaze-video-device : RTSP URL or device name (e.g., rtsp://192.168.0.203:8554/mystream or /dev/video0)
+#   bsext-gaze-rtsp-server  : RTSP server IP:port (e.g., 192.168.0.203:8554)
 #
 # Examples:
 #   registry write extension bsext-gaze-rtsp-server 192.168.0.203:8554
-#   registry write extension bsext-gaze-rtsp-url rtsp://192.168.0.203:8554/mystream
+#   registry write extension bsext-gaze-video-device rtsp://192.168.0.203:8554/mystream
 
 # Common setup function to determine SOC model and video device
 get_soc_name() {
@@ -102,38 +102,16 @@ detect_video_sources() {
     echo "$DETECTED_SOURCES"
 }
 
-get_default_video_source() {
-    SOC_NAME=$(get_soc_name)
-    # Default video device based on SOC
-    if [ "${SOC_NAME}" = "RK3588" ]; then
-        echo "/dev/video1"
-    else
-        echo "/dev/video0"
-    fi
-}
-
+# Function to get the video source from registry or default
 get_video_source() {
-    # Always use the XT5-compatible detection script to call choose_source
-    DETECT_SCRIPT="${SCRIPT_PATH}/detect_source_xt5.sh"
-    if [ -f "$DETECT_SCRIPT" ]; then
-        # Run the detection script and parse output
-        DETECTION_OUTPUT=$("$DETECT_SCRIPT" -q 2>/dev/null)
-        DETECTION_EXIT_CODE=$?
-        if [ $DETECTION_EXIT_CODE -eq 0 ] && [ -n "$DETECTION_OUTPUT" ]; then
-            MEDIA_TARGET=$(echo "$DETECTION_OUTPUT" | grep "^MEDIA_TARGET=" | cut -d= -f2)
-            if [ -n "$MEDIA_TARGET" ]; then
-                echo "$MEDIA_TARGET"
-                return 0
-            fi
-        fi
-        echo "No valid sources detected by detect_source_xt5.sh" >&2
-    else
-        echo "detect_source_xt5.sh not found at $DETECT_SCRIPT" >&2
+    local video_source
+    video_source=$(registry extension ${DAEMON_NAME}-video-device)
+    echo "Video source from registry: '$video_source'" >&2
+    if [ -z "$video_source" ]; then
+        video_source="usb_camera"
     fi
-    # Fallback to default if detection fails
-    get_default_video_source
+    echo "$video_source"
 }
-
 
 # Common function to run the attention demo
 run_attention_demo() {
@@ -225,6 +203,7 @@ do_start() {
     else
         echo "Warning: gst-env.sh not found, GStreamer environment may not be set correctly" >&2
     fi
+    ./gst-env.sh
     # Start the image stream server process as a daemon
     run_stream_server true ${STREAM_SERVER_PORT}
 }
@@ -305,7 +284,7 @@ case "$ACTION" in
             echo "  Selected: $SELECTED"
         else
             echo "No video sources detected."
-            echo "Default will be used: $(get_default_video_source)"
+            
         fi
         ;;
     help|*)
@@ -323,18 +302,18 @@ case "$ACTION" in
         echo "  --rtsp-server HOST  RTSP server IP:port (e.g., 192.168.0.203:8554)"
         echo ""
         echo "Configuration via BrightSign registry:"
-        echo "  bsext-gaze-rtsp-url       Full RTSP URL (e.g., rtsp://192.168.0.203:8554/mystream)"
-        echo "  bsext-gaze-rtsp-server    RTSP server IP:port (e.g., 192.168.0.203:8554)"
+        echo "  bsext-gaze-video-device      RTSP URL or device name (e.g., rtsp://192.168.0.203:8554/mystream or /dev/video0)"
+        echo "  bsext-gaze-rtsp-server       RTSP server IP:port (e.g., 192.168.0.203:8554)"
         echo "  bsext-gaze-disable-auto-start  Disable automatic startup (true/false)"
         echo ""
         echo "Examples:"
         echo "  # For automatic startup (survives reboot):"
         echo "  registry write extension bsext-gaze-rtsp-server 192.168.0.203:8554"
-        echo "  registry write extension bsext-gaze-rtsp-url rtsp://192.168.0.203:8554/mystream"
+        echo "  registry write extension bsext-gaze-video-device rtsp://192.168.0.203:8554/mystream"
         echo ""
         echo "  # To view current settings:"
         echo "  registry read extension bsext-gaze-rtsp-server"
-        echo "  registry read extension bsext-gaze-rtsp-url"
+        echo "  registry read extension bsext-gaze-video-device"
         echo ""
         echo "  # For manual override:"
         echo "  $0 start --rtsp-server 192.168.0.203:8554"
