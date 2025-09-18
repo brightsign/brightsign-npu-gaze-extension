@@ -15,10 +15,10 @@
 #include <chrono>
 #include <thread>
 #include <stdio.h>
+#include <dirent.h>
 
 #include <rga/rga.h>
 #include <rga/im2d.h>
-
 
 // Test RTSP connectivity with timeout and better error handling
 bool test_rtsp_connectivity(const std::string& rtsp_url, int timeout_seconds = 10) {
@@ -95,7 +95,6 @@ InferenceResult MLInferenceThread::runInference(cv::Mat& cap) {
 
     InferenceResult final_result{-1, -1, std::chrono::system_clock::now()};
 
-    printf("calling inference_retinaface_model\n");
     retinaface_result result;
     int ret = inference_retinaface_model(&rknn_app_ctx, 
         &image, &result);
@@ -105,8 +104,7 @@ InferenceResult MLInferenceThread::runInference(cv::Mat& cap) {
     }
     final_result.count_all_faces_in_frame = result.count;
     final_result.num_faces_attending = 0;
-    printf("inference_retinaface_model success! count=%d\n", result.count);
-
+    
     // Draw boxes on the image
     for (auto i{0}; i < result.count; i++) {
         auto color = cv::Scalar(255, 0, 0);     // red
@@ -136,7 +134,6 @@ InferenceResult MLInferenceThread::runInference(cv::Mat& cap) {
 
     frames++;
 
-    printf("Processed frame %d\n", frames);
     return final_result;
 }
 
@@ -324,14 +321,40 @@ bool rga_resize(const cv::Mat& src, cv::Mat& dst, int dst_w, int dst_h) {
     return true;
 }
 
+std::string findWorkingCameraDevice() {
+    std::vector<std::string> devices;
+    DIR *dir = opendir("/dev");
+    if (dir) {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            std::string name(entry->d_name);
+            if (name.find("video") == 0) {
+                devices.push_back("/dev/" + name);
+            }
+        }
+        closedir(dir);
+    }
+
+    for (const auto& dev : devices) {
+        std::cout << "Probing " << dev << " ..." << std::endl;
+        cv::VideoCapture cap(dev, cv::CAP_V4L2);
+        if (cap.isOpened()) {
+            std::cout << "Found working camera: " << dev << std::endl;
+            return dev;
+        }
+    }
+
+    std::cout << "No working /dev/video* devices found!" << std::endl;
+    return "";
+}
+
 MLInferenceThread::MLInferenceThread(
         const char* model_path,
         const char* input_source,
         ThreadSafeQueue<InferenceResult>& queue, 
         std::atomic<bool>& isRunning,
-        int target_fps=5)
+        int target_fps)
     : resultQueue(queue), running(isRunning), target_fps(target_fps) {
-
 
     printf("Initializing ML model from: %s\n", model_path);
     
@@ -343,7 +366,7 @@ MLInferenceThread::MLInferenceThread(
         printf("This will prevent inference from running properly.\n");
         // Don't return here, allow video capture to work even if model fails
     } else {
-        printf("✓ RetinaFace model initialized successfully\n");
+        printf("RetinaFace model initialized successfully\n");
     }
 
     printf("Waiting for network before opening RTSP...\n");
@@ -351,151 +374,47 @@ MLInferenceThread::MLInferenceThread(
 
     // open the capture with appropriate backend based on source type
     printf("Opening capture from source: %s\n", input_source);
-    
-    // Debug: Show OpenCV version
     printf("DEBUG: OpenCV version: %s\n", cv::getVersionString().c_str());
-    
-        
-    // Check if the device exists before trying to open it
-    if (strstr(input_source, "/dev/video") != nullptr) {
-        // For device paths, check if the device file exists and is accessible
-        FILE* device_check = fopen(input_source, "r");
-        if (device_check == nullptr) {
-            printf("ERROR: Video device %s does not exist or is not accessible (errno: %d)\n", input_source, errno);
-            return;
-        }
-        fclose(device_check);
-        printf("Video device %s exists and is accessible\n", input_source);
-        
-        // Check device permissions
-        struct stat device_stat;
-        if (stat(input_source, &device_stat) == 0) {
-            printf("Device permissions: %o, owner: %d, group: %d\n", 
-                   device_stat.st_mode & 0777, device_stat.st_uid, device_stat.st_gid);
-        }
-    }
-    
-    try {
-        bool capture_opened = false;
-        
-        // If it's a simple device path like /dev/video0, try V4L2 first (more reliable for USB cameras)
-        if (strstr(input_source, "/dev/video") != nullptr) {
-            printf("Detected device path, trying V4L2 backend first...\n");
-            if (capture.open(input_source, cv::CAP_V4L2)) {
+
+    std::string video_source = input_source;
+    bool capture_opened = false;
+
+    if (strcmp(input_source, "usb_camera") == 0) {
+        video_source = findWorkingCameraDevice();
+        if (!video_source.empty()) {
+            printf("Detected USB camera device: %s\n", video_source.c_str());
+            if (capture.open(video_source, cv::CAP_V4L2)) {
                 printf("V4L2 backend opened successfully\n");
                 capture_opened = true;
             } else {
-                printf("V4L2 backend failed, trying GStreamer backend...\n");
-                if (capture.open(input_source, cv::CAP_GSTREAMER)) {
-                    printf("GStreamer backend opened successfully\n");
-                    capture_opened = true;
-                } else {
-                    printf("GStreamer backend failed, trying default backend...\n");
-                    if (capture.open(input_source)) {
-                        printf("Default backend opened successfully\n");
-                        capture_opened = true;
-                    } else {
-                        printf("All backends failed for device: %s\n", input_source);
-                    }
-                }
+                printf("V4L2 backend failed for device: %s\n", video_source.c_str());
             }
+        } else {
+            printf("No working USB camera found!\n");
         }
-        // If it's an RTSP URL, try multiple approaches with better error handling
-        else if (strstr(input_source, "rtsp://") || strstr(input_source, "rtsps://")) {
-            printf("Detected RTSP URL: %s\n", input_source);
-            ensure_gstreamer_runtime();
-
-            // Test RTSP connectivity before attempting to open
-            if (!test_rtsp_connectivity(input_source, 10)) {
-                printf("WARNING: RTSP connectivity test failed, but continuing anyway...\n");
-            }
-
-            printf("Opening RTSP stream with GStreamer pipelines...\n");
-            auto pipelines = build_rtsp_pipelines(input_source);
-
-            for (size_t i = 0; i < pipelines.size(); ++i) {
-                printf("Trying pipeline %zu/%zu: %s\n", i+1, pipelines.size(), pipelines[i].c_str());
-                
-                // Try opening with timeout
-                auto start_time = std::chrono::steady_clock::now();
-                if (capture.open(pipelines[i], cv::CAP_GSTREAMER)) {
-                    auto end_time = std::chrono::steady_clock::now();
-                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-                    printf("✓ Pipeline %zu opened successfully in %ld ms\n", i+1, duration.count());
-                    capture_opened = true;
-                    break;
-                } else {
-                    auto end_time = std::chrono::steady_clock::now();
-                    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-                    printf("✗ Pipeline %zu failed after %ld ms\n", i+1, duration.count());
-                }
-            }
-
-            // Fallback: try simple RTSP URL without complex pipeline
-            if (!capture_opened) {
-                printf("All complex pipelines failed. Trying simple RTSP URL...\n");
-                if (capture.open(input_source, cv::CAP_GSTREAMER)) {
-                    printf("✓ Simple RTSP URL opened successfully!\n");
-                    capture_opened = true;
-                } else {
-                    printf("✗ Simple RTSP URL also failed\n");
-                    
-                    // Final fallback: try with default backend
-                    printf("Trying RTSP with default OpenCV backend...\n");
-                    if (capture.open(input_source)) {
-                        printf("✓ RTSP opened with default backend!\n");
-                        capture_opened = true;
-                    } else {
-                        printf("✗ All RTSP connection attempts failed\n");
-                    }
-                }
-            }
-        }
-        // For other cases, try GStreamer first, then default
-        else {
-            printf("Trying GStreamer backend first...\n");
-            if (capture.open(input_source, cv::CAP_GSTREAMER)) {
+    } else if (strstr(input_source, "rtsp://") || strstr(input_source, "rtsps://")) {
+        ensure_gstreamer_runtime();
+        printf("Detected RTSP URL: %s\n", input_source);
+        auto pipelines = build_rtsp_pipelines(input_source);
+        for (size_t i = 0; i < pipelines.size(); ++i) {
+            printf("Trying pipeline %zu/%zu: %s\n", i+1, pipelines.size(), pipelines[i].c_str());
+            if (capture.open(pipelines[i], cv::CAP_GSTREAMER)) {
                 printf("GStreamer backend opened successfully\n");
                 capture_opened = true;
+                break;
             } else {
-                printf("GStreamer backend failed, trying default backend...\n");
-                if (capture.open(input_source)) {
-                    printf("Default backend opened successfully\n");
-                    capture_opened = true;
-                } else {
-                    printf("All backends failed for: %s\n", input_source);
-                }
+                printf("GStreamer backend failed for pipeline: %s\n", pipelines[i].c_str());
             }
         }
-        
-        if (!capture_opened) {
-            printf("ERROR: Failed to open capture from any backend for source: %s\n", input_source);
-            return;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception caught: " << e.what() << std::endl;
-        printf("Failed to open capture due to exception: %s\n", e.what());
-        return;
-    } catch (...) {
-        std::cerr << "Unknown exception caught!" << std::endl;
-        printf("Failed to open capture due to unknown exception!\n");
-        return;
+    } else {
+        printf("Unknown input source type: %s\n", input_source);
     }
 
-    if (!capture.isOpened()) {
-        printf("Failed to open capture\n");
+    if (!capture_opened) {
+        printf("ERROR: Failed to open capture from any backend for source: %s\n", input_source);
         return;
     }
-
     printf("Capture opened successfully\n");
-    //capture.set(cv::CAP_PROP_FRAME_WIDTH, 320);
-    //capture.set(cv::CAP_PROP_FRAME_HEIGHT, 320);
-
-    if (!capture.isOpened()) {
-        printf("Failed to open capture\n");
-        // return -1;
-    }
-
     printf("done initializing MLInferenceThread\n");
 }
 
@@ -531,8 +450,6 @@ void MLInferenceThread::operator()() {
                 if (capture.read(captured_img) && !captured_img.empty()) {
                     frame_read_success = true;
                     consecutive_failures = 0; // Reset failure counter
-                    printf("Frame read successfully: %dx%d (attempt %d)\n", 
-                           captured_img.cols, captured_img.rows, retry + 1);
                 } else {
                     printf("Failed to read frame (attempt %d/3)\n", retry + 1);
                     if (retry < 2) {
@@ -578,7 +495,6 @@ void MLInferenceThread::operator()() {
             cv::resize(captured_img, resized, cv::Size(320, 320));
         }
 
-        printf("Running inference on frame\n");
         InferenceResult result = runInference(captured_img);
         resultQueue.push(std::move(result));
 

@@ -26,13 +26,11 @@ For test and debug purposes only, we have included a debug and test tool.  You c
 
 For more information, please see the [tool documentation](https://github.com/brightsign/bs-image-stream-server).
 
-
 # Building the BSMP Extension
 
 ## 🚀 Quick Start (Complete Automated Workflow)
 
-**Total Time**: 60-90 minutes | **Prerequisites**: Docker, git, x86_64 Linux host
-
+__Total Time__: 60-90 minutes | __Prerequisites__: Docker, git, x86_64 Linux host
 
 > ⏱️ **Time Breakdown**: Most time is spent in the OpenEmbedded SDK build (30-45 min). The process is fully automated but requires patience for the BitBake compilation.
 
@@ -77,10 +75,10 @@ In a typical development workflow, steps 1-4 (setup, model compilation, build an
 
 | Component | Requirement |
 |-----------|-------------|
-| **Development Host** | x86_64 architecture (Intel/AMD) |
-| **BrightSign Player** | Series 5 (XT-5, LS-5) or Firebird dev board |
-| **Camera** | USB webcam (tested: Logitech C270, Thustar) |
-| **Storage** | 25GB+ free space for builds |
+| __Development Host__ | x86_64 architecture (Intel/AMD) |
+| __BrightSign Player__ | Series 5 (XT-5, LS-5) or Firebird dev board |
+| __Camera__ | USB webcam (tested: Logitech C270, Thustar) |
+| __Storage__ | 25GB+ free space for builds |
 
 ### Supported Players
 
@@ -96,10 +94,9 @@ In a typical development workflow, steps 1-4 (setup, model compilation, build an
 - **Git** (for repository cloning)
 - **25GB+ disk space** (for OpenEmbedded builds)
 
-**Important**: Apple Silicon Macs are not supported. Use x86_64 Linux or Windows with WSL2.
+__Important__: Apple Silicon Macs are not supported. Use x86_64 Linux or Windows with WSL2.
 
 ## ⚙️ Configuration & Customization
-
 
 The extension is highly configurable via BrightSign registry keys:
 
@@ -110,7 +107,11 @@ The extension is highly configurable via BrightSign registry keys:
 registry write extension bsext-gaze-disable-auto-start true
 
 # Camera device override
-registry write extension bsext-gaze-video-device /dev/video1
+# You can override the input video source by setting this registry key to either a USB camera device ("usb_camera") or an RTSP URL (e.g., rtsp://192.168.1.100:554/stream)
+# Example for USB camera:
+registry write extension bsext-gaze-video-device usb_camera
+# Example for RTSP stream:
+# registry write extension bsext-gaze-video-device rtsp://192.168.1.100:554/stream
 ```
 
 ### Extension Control
@@ -139,13 +140,14 @@ The extension "watches" the camera field of view and finds all faces. It then lo
 
 ### UDP Output Formats
 
-
 **Port 5000** (BrightScript format for BrightAuthor:connected):
+
 ```ini
 faces_attending:1!!faces_in_frame_total:1!!timestamp:1746732408
 ```
 
 **Port 5002** (JSON format for node applications):
+
 ```json
 {"faces_attending":1,"faces_in_frame_total":1,"timestamp":1746732408}
 ```
@@ -212,9 +214,10 @@ reboot  # Extension auto-starts after reboot
 
 For faster iteration during development, consider using Orange Pi boards:
 
-**📋 See [OrangePI_Development.md](OrangePI_Development.md) for complete development guide**
+__📋 See [OrangePI_Development.md](OrangePI_Development.md) for complete development guide__
 
 Benefits:
+
 - **Faster builds**: Native ARM compilation vs cross-compilation
 - **Better debugging**: Full GDB support and system monitoring
 - **Same hardware**: Uses identical Rockchip SoCs as BrightSign players
@@ -234,6 +237,7 @@ Benefits:
 ./build --help                 # See all build options
 ./build --clean brightsign-sdk # Clean SDK rebuild
 ```
+
 ### Image Stream Server
 
 The **BrightSign Image Stream Server** is a built-in networking feature that serves camera frames over HTTP. Image Stream Server will start along with voice detection extension as a standalone daemon running in the background.The bs-image-stream-server continuously monitors a local image file by gaze detection and serves it via HTTP at 30 FPS. It specifically watches /tmp/output.jpg since that is where the BSMP files write their output.
@@ -246,10 +250,11 @@ Enable or disable the image stream server using the registry options:
 
 | Port Value | Behavior |
 |------------|----------|
-| `0` | **Disabled** - Image stream server is turned off (recommended for this extension) |
-| `20200` | **Default** - Serves camera feed at `http://player-ip:20200/image_stream.jpg` |
+| `0` | __Disabled__ - Image stream server is turned off (recommended for this extension) |
+| `20200` | __Default__ - Serves camera feed at `http://player-ip:20200/image_stream.jpg` |
 
 **Usage Examples:**
+
 ```bash
 # Disable image stream server
 registry write networking bs-image-stream-server-port 0
@@ -268,7 +273,7 @@ registry write networking bs-image-stream-server-port 20200
 - **Docker not running**: `systemctl start docker`
 - **Permission denied**: Add user to docker group
 - **Out of space**: Need 25GB+ for OpenEmbedded builds
-- **Wrong architecture**: Must use x86_64 host (not ARM/Apple Silicon)
+- __Wrong architecture__: Must use x86_64 host (not ARM/Apple Silicon)
 
 **Getting Help**:
 
@@ -307,7 +312,7 @@ The extension automatically detects platform at runtime:
 
 - **RK3588** (XT-5): Uses `RK3588/` subdirectory, `/dev/video1`
 - **RK3568** (LS-5): Uses `RK3568/` subdirectory, `/dev/video0`
-- **RK3576** (Firebird): Uses `RK3576/` subdirectory, `/dev/video0`
+- **RK3576** (Firebird): Uses `RK3576` subdirectory, `/dev/video0`
 
 ## 📚 Technical Documentation
 
@@ -330,7 +335,6 @@ For in-depth technical information:
 - Development workflow and best practices
 - Testing strategies
 - Debugging techniques
-
 
 ## 🗑️ Removing the Extension
 

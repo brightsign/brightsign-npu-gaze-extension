@@ -35,6 +35,7 @@ TOOLCHAIN_TARGET_TASK:append = " \
     gstreamer1.0-plugins-bad-dev \
     gstreamer1.0-libav \
 "
+TOOLCHAIN_TARGET_TASK:append = " ext-bundle "
 
 # Try to force inclusion of all available plugins by adding complete sets
 # Some plugins may be disabled by default in the build configuration  

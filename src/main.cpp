@@ -38,7 +38,9 @@ void signalHandler(int signum) {
 
 int main(int argc, char **argv) {
     // Set up logging and signal handling
+    #ifdef DEBUG
     freopen("/storage/sd/console.log", "a", stdout);
+    #endif
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     
@@ -76,7 +78,7 @@ int main(int argc, char **argv) {
             running,
             20);
 
-        printf("✓ ML inference thread created successfully\n");
+        printf("ML inference thread created successfully\n");
 
         // Initialize JSON UDP publisher
         printf("Initializing JSON UDP publisher on 127.0.0.1:5002...\n");
@@ -88,7 +90,7 @@ int main(int argc, char **argv) {
             running,
             json_formatter,
             10);
-        printf("✓ JSON UDP publisher initialized\n");
+        printf("JSON UDP publisher initialized\n");
 
         // Initialize BrightSign variable UDP publisher  
         printf("Initializing BrightSign variable UDP publisher on 127.0.0.1:5000...\n");
@@ -100,7 +102,7 @@ int main(int argc, char **argv) {
             running,
             bsvar_formatter,
             10);
-        printf("✓ BrightSign variable UDP publisher initialized\n");
+        printf("BrightSign variable UDP publisher initialized\n");
 
         // Start all threads
         printf("Starting inference and publisher threads...\n");
@@ -108,7 +110,7 @@ int main(int argc, char **argv) {
         std::thread json_publisherThread(std::ref(json_publisher));
         std::thread bsvar_publisherThread(std::ref(bsvar_publisher));
         
-        printf("✓ All threads started successfully\n");
+        printf("All threads started successfully\n");
         printf("Gaze tracking system is now running...\n");
 
         // Main loop with graceful shutdown

@@ -35,7 +35,7 @@ do_install() {
     done
 
     # ---- GStreamer plugin modules (GStreamer >= 1.22 names) ----
-    for p in libgstapp.so libgstvideoconvertscale.so libgstrtsp.so libgstrtp.so libgstrtpmanager.so libgstvideoparsersbad.so ; do
+    for p in libgstapp.so libgstvideoconvertscale.so libgstvideoconvert.so libgstrtsp.so libgstrtp.so libgstrtpmanager.so libgstvideoparsersbad.so ; do
         [ -f ${STAGING_LIBDIR}/gstreamer-1.0/$p ] && \
             install -m0644 ${STAGING_LIBDIR}/gstreamer-1.0/$p ${WORKDIR}/payload/gstreamer-1.0/
     done
@@ -51,7 +51,8 @@ do_install() {
     install -d ${D}${DATADIR_PAYLOAD}
     tar -C ${WORKDIR}/payload -czf ${D}${DATADIR_PAYLOAD}/${PAYLOAD_TGZ} .
 }
-RDEPENDS:${PN} += "gstreamer1.0 (= ${PV})"
+#RDEPENDS:${PN} += "gstreamer1.0 (= ${PV})"
+RDEPENDS:${PN} += "gstreamer1.0"
 
 # Only ship the tarball
 FILES:${PN} = "${DATADIR_PAYLOAD}/${PAYLOAD_TGZ}"

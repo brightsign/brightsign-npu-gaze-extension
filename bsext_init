@@ -24,12 +24,12 @@ DISABLE_AUTO_START=false
 # Priority: Command line args > Registry settings > Auto-discovered RTSP > USB cameras > Default device
 # 
 # Registry settings:
-#   bsext-gaze-rtsp-url    : Full RTSP URL (e.g., rtsp://192.168.0.203:8554/mystream)
-#   bsext-gaze-rtsp-server : RTSP server IP:port (e.g., 192.168.0.203:8554)
+#   bsext-gaze-video-device : RTSP URL or device name (e.g., rtsp://192.168.0.203:8554/mystream or /dev/video0)
+#   bsext-gaze-rtsp-server  : RTSP server IP:port (e.g., 192.168.0.203:8554)
 #
 # Examples:
 #   registry write extension bsext-gaze-rtsp-server 192.168.0.203:8554
-#   registry write extension bsext-gaze-rtsp-url rtsp://192.168.0.203:8554/mystream
+#   registry write extension bsext-gaze-video-device rtsp://192.168.0.203:8554/mystream
 
 # Common setup function to determine SOC model and video device
 get_soc_name() {
@@ -77,10 +77,23 @@ detect_video_sources() {
         fi
         
         if [ -c "$video_dev" ]; then
-            # Simple validation - just check if it's a character device
-            if ls -la "$video_dev" | grep -q "crw.*video"; then
-                echo "  ✓ Found USB camera: $video_dev" >&2
-                DETECTED_SOURCES="$DETECTED_SOURCES $video_dev"
+            # More thorough validation - try to query device capabilities
+            if command -v v4l2-ctl >/dev/null 2>&1; then
+                # Use v4l2-ctl to check if it's a real camera
+                if v4l2-ctl --device="$video_dev" --list-formats-ext >/dev/null 2>&1; then
+                    echo "  Found USB camera: $video_dev" >&2
+                    DETECTED_SOURCES="$DETECTED_SOURCES $video_dev"
+                else
+                    echo "  Device $video_dev exists but is not a functional camera" >&2
+                fi
+            else
+                # Fallback: try to open the device briefly to test if it's functional
+                if timeout 2 cat "$video_dev" >/dev/null 2>&1; then
+                    echo "   Found USB camera: $video_dev" >&2
+                    DETECTED_SOURCES="$DETECTED_SOURCES $video_dev"
+                else
+                    echo "  Device $video_dev exists but is not accessible" >&2
+                fi
             fi
         fi
     done
@@ -89,132 +102,16 @@ detect_video_sources() {
     echo "$DETECTED_SOURCES"
 }
 
-get_default_video_source() {
-    SOC_NAME=$(get_soc_name)
-    # Default video device based on SOC
-    if [ "${SOC_NAME}" = "RK3588" ]; then
-        echo "/dev/video1"
-    else
-        echo "/dev/video0"
-    fi
-}
-
+# Function to get the video source from registry or default
 get_video_source() {
-    # Determine which detection script to use based on SOC model
-    SOC_NAME=$(get_soc_name)
-    
-    # For now, all SOC models use the XT5-compatible script since it's designed for BusyBox
-    # In the future, specific scripts could be added for different SOC models
-    DETECT_SCRIPT="${SCRIPT_PATH}/detect_source_xt5.sh"
-    
-    if [ -f "$DETECT_SCRIPT" ]; then
-        echo "Using detect_source_xt5.sh for video source detection (SOC: $SOC_NAME)..." >&2
-        
-        # Prepare detection script arguments
-        DETECT_ARGS=""
-        
-        # Check registry for RTSP configuration if no command line argument
-        if [ -z "$RTSP_HINT" ]; then
-            reg_rtsp_url=$(registry extension ${DAEMON_NAME}-rtsp-url)
-            reg_rtsp_server=$(registry extension ${DAEMON_NAME}-rtsp-server)
-            
-            if [ -n "$reg_rtsp_url" ]; then
-                RTSP_HINT="$reg_rtsp_url"
-                echo "Using registry RTSP URL: $reg_rtsp_url" >&2
-            elif [ -n "$reg_rtsp_server" ]; then
-                RTSP_HINT="$reg_rtsp_server"
-                echo "Using registry RTSP server: $reg_rtsp_server" >&2
-            fi
-        fi
-        
-        # Use RTSP hint if provided via command line or environment
-        if [ -n "$RTSP_HINT" ]; then
-            DETECT_ARGS="-r $RTSP_HINT"
-            echo "Using RTSP hint: $RTSP_HINT" >&2
-        else
-            echo "No RTSP hint provided, using auto-detection" >&2
-        fi
-        
-        # Run the detection script with arguments
-        if [ -n "$DETECT_ARGS" ]; then
-            DETECTION_OUTPUT=$("$DETECT_SCRIPT" $DETECT_ARGS -q 2>/dev/null)
-        else
-            DETECTION_OUTPUT=$("$DETECT_SCRIPT" -q 2>/dev/null)
-        fi
-        DETECTION_EXIT_CODE=$?
-        
-        if [ $DETECTION_EXIT_CODE -eq 0 ] && [ -n "$DETECTION_OUTPUT" ]; then
-            # Parse the output to get MEDIA_KIND and MEDIA_TARGET
-            MEDIA_KIND=$(echo "$DETECTION_OUTPUT" | grep "^MEDIA_KIND=" | cut -d= -f2)
-            MEDIA_TARGET=$(echo "$DETECTION_OUTPUT" | grep "^MEDIA_TARGET=" | cut -d= -f2)
-            
-            echo "Detection result: $MEDIA_KIND -> $MEDIA_TARGET" >&2
-            
-            if [ -n "$MEDIA_TARGET" ] && [ "$MEDIA_KIND" != "none" ]; then
-                echo "Selected source: $MEDIA_TARGET" >&2
-                echo "$MEDIA_TARGET"
-                return 0
-            else
-                echo "No valid sources detected by detect_source_xt5.sh" >&2
-                # If we have an RTSP hint but detection failed, try using the hint directly
-                if [ -n "$RTSP_HINT" ]; then
-                    echo "Detection failed but RTSP hint available, trying hint directly: $RTSP_HINT" >&2
-                    echo "$RTSP_HINT"
-                    return 0
-                fi
-            fi
-        else
-            echo "detect_source_xt5.sh failed or returned no results" >&2
-            # If we have an RTSP hint but detection failed, try using the hint directly
-            if [ -n "$RTSP_HINT" ]; then
-                echo "Detection failed but RTSP hint available, trying hint directly: $RTSP_HINT" >&2
-                echo "$RTSP_HINT"
-                return 0
-            fi
-        fi
-    else
-        echo "detect_source_xt5.sh not found at $DETECT_SCRIPT" >&2
+    local video_source
+    video_source=$(registry extension ${DAEMON_NAME}-video-device)
+    echo "Video source from registry: '$video_source'" >&2
+    if [ -z "$video_source" ]; then
+        video_source="usb_camera"
     fi
-    
-    # Fallback to legacy detection if the new script fails
-    echo "Falling back to legacy video source detection..." >&2
-    AVAILABLE_SOURCES=$(detect_video_sources)
-    
-    echo "Detection results: '$AVAILABLE_SOURCES'" >&2
-    
-    if [ -z "$AVAILABLE_SOURCES" ] || [ "$AVAILABLE_SOURCES" = " " ]; then
-        echo "No video sources detected, using default..." >&2
-        DEFAULT_SOURCE=$(get_default_video_source)
-        echo "Default source: $DEFAULT_SOURCE" >&2
-        echo "$DEFAULT_SOURCE"
-        return
-    fi
-    
-    # Prioritize sources: RTSP > USB cameras
-    for source in $AVAILABLE_SOURCES; do
-        if [ -n "$source" ] && echo "$source" | grep -q "rtsp://"; then
-            echo "Selected RTSP source: $source" >&2
-            echo "$source"
-            return
-        fi
-    done
-    
-    # If no RTSP, use first USB camera
-    for source in $AVAILABLE_SOURCES; do
-        if [ -n "$source" ] && echo "$source" | grep -q "/dev/video"; then
-            echo "Selected USB camera: $source" >&2
-            echo "$source"
-            return
-        fi
-    done
-    
-    # Fallback to default
-    echo "No suitable sources found in detected list, using default..." >&2
-    DEFAULT_SOURCE=$(get_default_video_source)
-    echo "Default source: $DEFAULT_SOURCE" >&2
-    echo "$DEFAULT_SOURCE"
+    echo "$video_source"
 }
-
 
 # Common function to run the attention demo
 run_attention_demo() {
@@ -300,7 +197,12 @@ do_start() {
         echo "Image stream server is disabled (port set to 0)"
         return
     fi
-    #run the stream server in the gst environment
+    # Source the gst environment
+    if [ -f ./gst-env.sh ]; then
+        . ./gst-env.sh
+    else
+        echo "Warning: gst-env.sh not found, GStreamer environment may not be set correctly" >&2
+    fi
     ./gst-env.sh
     # Start the image stream server process as a daemon
     run_stream_server true ${STREAM_SERVER_PORT}
@@ -382,7 +284,7 @@ case "$ACTION" in
             echo "  Selected: $SELECTED"
         else
             echo "No video sources detected."
-            echo "Default will be used: $(get_default_video_source)"
+            
         fi
         ;;
     help|*)
@@ -400,18 +302,18 @@ case "$ACTION" in
         echo "  --rtsp-server HOST  RTSP server IP:port (e.g., 192.168.0.203:8554)"
         echo ""
         echo "Configuration via BrightSign registry:"
-        echo "  bsext-gaze-rtsp-url       Full RTSP URL (e.g., rtsp://192.168.0.203:8554/mystream)"
-        echo "  bsext-gaze-rtsp-server    RTSP server IP:port (e.g., 192.168.0.203:8554)"
+        echo "  bsext-gaze-video-device      RTSP URL or device name (e.g., rtsp://192.168.0.203:8554/mystream or /dev/video0)"
+        echo "  bsext-gaze-rtsp-server       RTSP server IP:port (e.g., 192.168.0.203:8554)"
         echo "  bsext-gaze-disable-auto-start  Disable automatic startup (true/false)"
         echo ""
         echo "Examples:"
         echo "  # For automatic startup (survives reboot):"
         echo "  registry write extension bsext-gaze-rtsp-server 192.168.0.203:8554"
-        echo "  registry write extension bsext-gaze-rtsp-url rtsp://192.168.0.203:8554/mystream"
+        echo "  registry write extension bsext-gaze-video-device rtsp://192.168.0.203:8554/mystream"
         echo ""
         echo "  # To view current settings:"
         echo "  registry read extension bsext-gaze-rtsp-server"
-        echo "  registry read extension bsext-gaze-rtsp-url"
+        echo "  registry read extension bsext-gaze-video-device"
         echo ""
         echo "  # For manual override:"
         echo "  $0 start --rtsp-server 192.168.0.203:8554"
