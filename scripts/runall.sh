@@ -161,6 +161,8 @@ cleanup_all() {
         rm -rf install/RK3576
         rm -rf install/RK3588
         rm -f install/bsext_init
+        rm -f install/gst-env.sh
+        rm -rf install/detect_source_xt5.sh
         rm -f install/uninstall.sh
     fi
     
@@ -541,6 +543,9 @@ step4_package() {
     
     # Copy extension scripts
     cp bsext_init install/ && chmod +x install/bsext_init
+    cp gst-env.sh install/ && chmod +x install/gst-env.sh
+    cp detect_source_xt5.sh install/ && chmod +x install/detect_source_xt5.sh
+    cp  install/ && chmod +x install/gst-env.sh
     cp sh/uninstall.sh install/ && chmod +x install/uninstall.sh
 
     # Create development package

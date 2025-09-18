@@ -51,7 +51,8 @@ do_install() {
     install -d ${D}${DATADIR_PAYLOAD}
     tar -C ${WORKDIR}/payload -czf ${D}${DATADIR_PAYLOAD}/${PAYLOAD_TGZ} .
 }
-RDEPENDS:${PN} += "gstreamer1.0 (= ${PV})"
+#RDEPENDS:${PN} += "gstreamer1.0 (= ${PV})"
+RDEPENDS:${PN} += "gstreamer1.0"
 
 # Only ship the tarball
 FILES:${PN} = "${DATADIR_PAYLOAD}/${PAYLOAD_TGZ}"

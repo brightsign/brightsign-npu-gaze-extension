@@ -421,30 +421,33 @@ auto_discover_rtsp() {
 # ---- USB camera detection ----
 
 usb_first_camera() {
-  local dev
-  for dev in /dev/video*; do
-    [ -c "$dev" ] || continue
-    
-    # Skip non-numeric video devices
-    if ! echo "$dev" | grep -q '/dev/video[0-9]'; then
-      continue
-    fi
-    
-    # Try with v4l2-ctl if available
-    if have v4l2-ctl; then
-      if v4l2-ctl -d "$dev" --list-formats-ext >/dev/null 2>&1; then
+  # Use lsusb to confirm a USB camera is present
+  local dev usb_info
+  if have lsusb; then
+    usb_info=$(lsusb 2>/dev/null | grep -i -E 'camera|webcam|uvc|video')
+    if [ -n "$usb_info" ]; then
+      # Find the highest-numbered /dev/video* device (most likely USB camera)
+      dev=$(ls /dev/video* 2>/dev/null | grep -E '/dev/video[0-9]+' | sort -V | tail -n 1)
+      if [ -n "$dev" ] && [ -c "$dev" ]; then
+        echo "Detected USB camera: $dev ($usb_info)" >&2
         echo "$dev"
         return 0
       fi
+    else
+      echo "No USB camera found in lsusb output" >&2
+      return 1
     fi
-    
-    # Simple check: just verify it's a character device with video group
-    if ls -la "$dev" | grep -q "^crw.*video"; then
+  else
+    # Fallback: original logic if lsusb not available
+    dev=$(ls /dev/video* 2>/dev/null | grep -E '/dev/video[0-9]+' | sort -V | tail -n 1)
+    if [ -n "$dev" ] && [ -c "$dev" ]; then
+      echo "Detected USB camera: $dev (lsusb not available)" >&2
       echo "$dev"
       return 0
     fi
-  done
-  return 1
+    echo "No valid USB camera found (lsusb not available)" >&2
+    return 1
+  fi
 }
 
 # ---- Decision logic ----
@@ -452,62 +455,65 @@ usb_first_camera() {
 choose_source() {
   local kind="" target="" note="" url="" host="" port=""
 
-  if [ "$PREFER" != "rtsp" ] && [ "$PREFER" != "usb" ]; then 
-    PREFER="rtsp"
+  # PRIORITY 1: USB camera detection (always try first)
+  if target="$(usb_first_camera)"; then
+    kind="usb"
+    note="USB camera detected (highest priority)"
   fi
 
-  # PRIORITY 1: User-specified hint (takes precedence over auto-discovery)
-  
-  # Case A: Full URL given
-  if echo "$HINT" | grep -q "^rtsp://"; then
-    url="$HINT"
-    if rtsp_url_is_live "$url"; then
-      kind="rtsp"
-      target="$url"
-      note="RTSP URL live (user specified)"
-    else
-      host="$(url_get_host "$url")"
-      port="$(url_get_port "$url")"
-      [ -z "$port" ] && port="554"
-      if rtsp_port_is_server "$host" "$port"; then
-        note="RTSP server detected at $host:$port but stream not playable (bad path/creds?)."
-      else
-        note="No RTSP server response at $host:$port."
-      fi
+  # PRIORITY 2: User-specified hint (if no USB camera found)
+  if [ -z "$kind" ]; then
+    if [ "$PREFER" != "rtsp" ] && [ "$PREFER" != "usb" ]; then 
+      PREFER="rtsp"
     fi
-
-  # Case B: Host[:port] given  
-  elif [ -n "$HINT" ]; then
-    host="${HINT%%:*}"
-    if echo "$HINT" | grep -q ":"; then 
-      port="${HINT##*:}"
-    else 
-      port=""
-    fi
-
-    if [ -z "$port" ]; then
-      port="$(rtsp_find_server_port "$host" || true)"
-    else
-      if ! rtsp_port_is_server "$host" "$port"; then
-        port=""
-      fi
-    fi
-
-    if [ -n "$port" ]; then
-      # Try to find a working stream path
-      if url="$(try_common_rtsp_paths "$host" "$port")"; then
+    # Case A: Full URL given
+    if echo "$HINT" | grep -q "^rtsp://"; then
+      url="$HINT"
+      if rtsp_url_is_live "$url"; then
         kind="rtsp"
         target="$url"
-        note="RTSP server at $host:$port (user specified, found working stream)"
+        note="RTSP URL live (user specified)"
       else
-        note="RTSP server at $host:$port, but no playable stream found (user specified)"
+        host="$(url_get_host "$url")"
+        port="$(url_get_port "$url")"
+        [ -z "$port" ] && port="554"
+        if rtsp_port_is_server "$host" "$port"; then
+          note="RTSP server detected at $host:$port but stream not playable (bad path/creds?)."
+        else
+          note="No RTSP server response at $host:$port."
+        fi
       fi
-    else
-      note="No RTSP server detected at $HINT (tried ports: $RTSP_PORTS)."
+    # Case B: Host[:port] given  
+    elif [ -n "$HINT" ]; then
+      host="${HINT%%:*}"
+      if echo "$HINT" | grep -q ":"; then 
+        port="${HINT##*:}"
+      else 
+        port=""
+      fi
+      if [ -z "$port" ]; then
+        port="$(rtsp_find_server_port "$host" || true)"
+      else
+        if ! rtsp_port_is_server "$host" "$port"; then
+          port=""
+        fi
+      fi
+      if [ -n "$port" ]; then
+        # Try to find a working stream path
+        if url="$(try_common_rtsp_paths "$host" "$port")"; then
+          kind="rtsp"
+          target="$url"
+          note="RTSP server at $host:$port (user specified, found working stream)"
+        else
+          note="RTSP server at $host:$port, but no playable stream found (user specified)"
+        fi
+      else
+        note="No RTSP server detected at $HINT (tried ports: $RTSP_PORTS)."
+      fi
     fi
   fi
 
-  # PRIORITY 2: Auto-discovery (only if no user hint or hint failed)
+  # PRIORITY 3: Auto-discovery (only if no USB or user hint)
   if [ -z "$kind" ] && [ "$AUTO_DETECT" -eq 1 ]; then
     if url="$(auto_discover_rtsp)"; then
       kind="rtsp"
@@ -516,25 +522,6 @@ choose_source() {
         note="Auto-discovered local RTSP stream (incoming)"
       else
         note="Auto-discovered RTSP stream (network)"
-      fi
-    fi
-  fi
-
-  # PRIORITY 3: USB fallback (based on preference)
-  if [ "$PREFER" = "usb" ]; then
-    # USB preference: try USB first, then RTSP if no USB found
-    if [ -z "$kind" ]; then
-      if target="$(usb_first_camera)"; then 
-        kind="usb"
-        note="USB camera available (preferred)"
-      fi
-    fi
-  else
-    # RTSP preference (default): USB only as fallback if no RTSP found
-    if [ -z "$kind" ]; then
-      if target="$(usb_first_camera)"; then 
-        kind="usb"
-        note="USB camera available (fallback - no RTSP found)"
       fi
     fi
   fi
