@@ -38,7 +38,7 @@ private:
 public:
     MLInferenceThread(
         const char* model_path,
-        const char* source_name,
+        const char* input_source,
         ThreadSafeQueue<InferenceResult>& queue, 
         std::atomic<bool>& isRunning,
         int target_fps);
