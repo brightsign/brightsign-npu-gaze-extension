@@ -205,35 +205,42 @@ static void ensure_gstreamer_runtime() {
 // Build robust RTSP pipelines with fallback options
 static std::vector<std::string> build_rtsp_pipelines(const std::string& url) {
     std::vector<std::string> pipelines;
-    
-    // Pipeline 1: Hardware-accelerated with Rockchip MPP decoder
+    // Pipeline 1: Hardware-accelerated with Rockchip MPP decoder (H264)
     pipelines.push_back(
         "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true ! "
         "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    
-    // Pipeline 2: Software decoding fallback
+    // Pipeline 2: Software decoding fallback (H264)
     pipelines.push_back(
         "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true ! "
         "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    
-    // Pipeline 3: UDP with shorter latency
+    // Pipeline 3: Hardware-accelerated with Rockchip MPP decoder (H265)
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=tcp latency=150 ! "
+        "rtph265depay ! h265parse ! mppvideodec ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+    // Pipeline 4: Software decoding fallback (H265)
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=tcp latency=150 ! "
+        "rtph265depay ! h265parse ! avdec_hevc ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+    // Pipeline 5: UDP with shorter latency
     pipelines.push_back(
         "rtspsrc location=" + url + " protocols=udp latency=100 drop-on-latency=true ! "
         "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    
-    // Pipeline 4: Basic pipeline without specific decoder
+    // Pipeline 6: Basic pipeline without specific decoder
     pipelines.push_back(
         "rtspsrc location=" + url + " latency=200 ! "
         "decodebin ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    
     return pipelines;
 }
 // Optional: turn on useful diagnostics from OpenCV’s GStreamer wrapper and GStreamer itself
