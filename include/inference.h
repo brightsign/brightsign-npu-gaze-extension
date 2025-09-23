@@ -30,6 +30,7 @@ private:
     int target_fps;
     rknn_app_context_t rknn_app_ctx;
     cv::VideoCapture capture;
+    std::string video_source;
     int frames{0};
     
     // Simulated ML model inference

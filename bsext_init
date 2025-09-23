@@ -171,6 +171,14 @@ run_stream_server() {
     fi
 }
 
+setup_gstreamer_env() {
+    echo "Setting up GStreamer environment for SOC: $SOC_NAME"
+    export GST_PLUGIN_PATH=/var/volatile/bsext/ext_npu_gaze/$SOC_NAME/lib/gstreamer-1.0:/usr/lib/gstreamer-1.0
+    export LD_LIBRARY_PATH=/var/volatile/bsext/ext_npu_gaze/$SOC_NAME/lib:/usr/lib:$LD_LIBRARY_PATH
+    export GST_REGISTRY="/tmp/gst-registry.bin"
+    export GST_REGISTRY_REUSE_PLUGIN_SCANNER=1
+}
+
 do_start() {
     # check registry for auto-start
     reg_disable_auto_start=$(registry extension ${DAEMON_NAME}-disable-auto-start)
@@ -197,13 +205,10 @@ do_start() {
         echo "Image stream server is disabled (port set to 0)"
         return
     fi
-    # Source the gst environment
-    if [ -f ./gst-env.sh ]; then
-        . ./gst-env.sh
-    else
-        echo "Warning: gst-env.sh not found, GStreamer environment may not be set correctly" >&2
-    fi
-    ./gst-env.sh
+    
+    SOC_NAME=$(get_soc_name)
+    setup_gstreamer_env
+
     # Start the image stream server process as a daemon
     run_stream_server true ${STREAM_SERVER_PORT}
 }

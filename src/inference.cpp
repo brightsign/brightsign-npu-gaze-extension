@@ -383,7 +383,7 @@ MLInferenceThread::MLInferenceThread(
     printf("Opening capture from source: %s\n", input_source);
     printf("DEBUG: OpenCV version: %s\n", cv::getVersionString().c_str());
 
-    std::string video_source = input_source;
+    video_source = input_source;
     bool capture_opened = false;
 
     if (strcmp(input_source, "usb_camera") == 0) {
@@ -451,44 +451,31 @@ void MLInferenceThread::operator()() {
         cv::Mat captured_img;
         bool frame_read_success = false;
         
-        // Retry frame reading with exponential backoff
-        for (int retry = 0; retry < 3 && !frame_read_success; retry++) {
-            try {
-                if (capture.read(captured_img) && !captured_img.empty()) {
-                    frame_read_success = true;
-                    consecutive_failures = 0; // Reset failure counter
-                } else {
-                    printf("Failed to read frame (attempt %d/3)\n", retry + 1);
-                    if (retry < 2) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
-                    }
-                }
-            } catch (const cv::Exception& e) {
-                printf("OpenCV exception during frame read (attempt %d/3): %s\n", retry + 1, e.what());
-                if (retry < 2) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
-                }
-            } catch (const std::exception& e) {
-                printf("Standard exception during frame read (attempt %d/3): %s\n", retry + 1, e.what());
-                if (retry < 2) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
-                }
-            } catch (...) {
-                printf("Unknown exception during frame read (attempt %d/3)\n", retry + 1);
-                if (retry < 2) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms * (retry + 1)));
-                }
-            }
+        if (capture.grab()) {
+            capture.retrieve(captured_img);
+            frame_read_success = true;
+        } else {
+            std::cout << "grab() failed" << std::endl;
         }
         
         if (!frame_read_success) {
             consecutive_failures++;
-            printf("Frame read failed after all retries (consecutive failures: %d/%d)\n", 
-                   consecutive_failures, max_consecutive_failures);
-            
-            if (consecutive_failures >= max_consecutive_failures) {
-                printf("ERROR: Too many consecutive frame read failures, stopping inference thread\n");
-                break;
+            if (consecutive_failures > 5) {
+                capture.release();
+                auto pipelines = build_rtsp_pipelines(video_source);
+                for (size_t i = 0; i < pipelines.size(); ++i) {
+                    if (capture.open(pipelines[i], cv::CAP_GSTREAMER)) {
+                        break;
+                    } else {
+                        printf("GStreamer backend failed for pipeline: %s\n", pipelines[i].c_str());
+                    }
+                }
+                if (!capture.isOpened()) {
+                    printf("ERROR: Failed to reopen capture after release\n");
+                } else {
+                    printf("Capture reopened successfully\n");
+                }
+                consecutive_failures = 0; // Reset after reopening
             }
             
             // Wait before next attempt
