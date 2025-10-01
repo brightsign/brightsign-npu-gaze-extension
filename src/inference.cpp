@@ -3,6 +3,7 @@
 #include <thread>
 #include <sys/stat.h>
 #include <errno.h>
+#include <algorithm>
 
 #include "attention.h"
 #include "inference.h"
@@ -202,47 +203,102 @@ static void ensure_gstreamer_runtime() {
     }
 }
 
-// Build robust RTSP pipelines with fallback options
+// Build robust RTSP pipelines with fallback options (H.264 + H.265)
 static std::vector<std::string> build_rtsp_pipelines(const std::string& url) {
     std::vector<std::string> pipelines;
-    // Pipeline 1: Hardware-accelerated with Rockchip MPP decoder (H264)
+
+    //
+    // Explicit H.265 (video only) – Hardware accelerated
+    //
     pipelines.push_back(
-        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true ! "
-        "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
-        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
-    );
-    // Pipeline 2: Software decoding fallback (H264)
-    pipelines.push_back(
-        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true ! "
-        "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! "
-        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
-    );
-    // Pipeline 3: Hardware-accelerated with Rockchip MPP decoder (H265)
-    pipelines.push_back(
-        "rtspsrc location=" + url + " protocols=tcp latency=150 ! "
+        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true name=src "
+        "src. ! application/x-rtp,media=video,encoding-name=H265 ! "
         "rtph265depay ! h265parse ! mppvideodec ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    // Pipeline 4: Software decoding fallback (H265)
+
+    //
+    // Explicit H.265 (video only) – Software fallback
+    //
     pipelines.push_back(
-        "rtspsrc location=" + url + " protocols=tcp latency=150 ! "
+        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true name=src "
+        "src. ! application/x-rtp,media=video,encoding-name=H265 ! "
         "rtph265depay ! h265parse ! avdec_hevc ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    // Pipeline 5: UDP with shorter latency
+
+    //
+    // Explicit H.264 (video only) – Hardware accelerated
+    //
     pipelines.push_back(
-        "rtspsrc location=" + url + " protocols=udp latency=100 drop-on-latency=true ! "
+        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true name=src "
+        "src. ! application/x-rtp,media=video,encoding-name=H264 ! "
         "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
-    // Pipeline 6: Basic pipeline without specific decoder
+
+    //
+    // Explicit H.264 (video only) – Software fallback
+    //
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=tcp latency=150 drop-on-latency=true name=src "
+        "src. ! application/x-rtp,media=video,encoding-name=H264 ! "
+        "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+
+    //
+    // UDP mode (H.264 fast path, for LAN cameras that don’t like TCP)
+    //
+    pipelines.push_back(
+        "rtspsrc location=" + url + " protocols=udp latency=100 drop-on-latency=true name=src "
+        "src. ! application/x-rtp,media=video,encoding-name=H264 ! "
+        "rtph264depay ! h264parse ! mppvideodec ! videoconvert ! "
+        "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
+    );
+
+    //
+    // Last-resort fallback: decodebin (can hang on XT5 if audio is present, so keep at the end)
+    //
     pipelines.push_back(
         "rtspsrc location=" + url + " latency=200 ! "
         "decodebin ! videoconvert ! "
         "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
     );
+
     return pipelines;
 }
+
+// Try to open a pipeline with a timeout
+static cv::VideoCapture try_open_pipeline(const std::string& pipeline, int timeout_ms = 3000) {
+    cv::VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
+    printf("Opened pipeline, checking for frames: %s\n", pipeline.c_str());
+    if (!cap.isOpened()) {
+        printf("Failed to open pipeline immediately: %s\n", pipeline.c_str());
+        return {};
+    }
+
+    // Try to grab one frame with timeout
+    auto start = std::chrono::steady_clock::now();
+    cv::Mat frame;
+    while (true) {
+        printf("Attempting to read frame from pipeline...\n");  
+        if (cap.read(frame) && !frame.empty()) {
+            printf("Pipeline succeeded: %s\n", pipeline.c_str());
+            return cap;  // success
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+        if (elapsed > timeout_ms) {
+            printf("Timeout waiting for frames on pipeline: %s\n", pipeline.c_str());
+            cap.release();
+            return {};  // fail, try next pipeline
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
 // Optional: turn on useful diagnostics from OpenCV’s GStreamer wrapper and GStreamer itself
 static void enable_gst_debug() {
     setenv("OPENCV_VIDEOIO_DEBUG", "1", 1);   // OpenCV videoio logs
@@ -342,12 +398,44 @@ std::string findWorkingCameraDevice() {
         closedir(dir);
     }
 
+    // Sort devices to test in numerical order (video0, video1, etc.)
+    std::sort(devices.begin(), devices.end());
+
     for (const auto& dev : devices) {
         std::cout << "Probing " << dev << " ..." << std::endl;
+        
+        // Check if device exists and is accessible
+        if (access(dev.c_str(), R_OK) != 0) {
+            std::cout << "  Device not accessible: " << dev << " (errno: " << errno << ")" << std::endl;
+            continue;
+        }
+        
         cv::VideoCapture cap(dev, cv::CAP_V4L2);
         if (cap.isOpened()) {
-            std::cout << "Found working camera: " << dev << std::endl;
-            return dev;
+            std::cout << "  Device opened successfully, testing frame capture..." << std::endl;
+            
+            // Try to actually capture a frame to verify the device works
+            cv::Mat test_frame;
+            bool can_capture = false;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                if (cap.read(test_frame) && !test_frame.empty()) {
+                    can_capture = true;
+                    std::cout << "  Frame capture successful (size: " << test_frame.cols << "x" << test_frame.rows << ")" << std::endl;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            cap.release(); // Explicitly release the device
+            
+            if (can_capture) {
+                std::cout << "Found working camera: " << dev << std::endl;
+                return dev;
+            } else {
+                std::cout << "  Device opened but cannot capture frames: " << dev << std::endl;
+            }
+        } else {
+            std::cout << "  Failed to open device: " << dev << std::endl;
         }
     }
 
@@ -402,27 +490,30 @@ MLInferenceThread::MLInferenceThread(
     } else if (strstr(input_source, "rtsp://") || strstr(input_source, "rtsps://")) {
         ensure_gstreamer_runtime();
         printf("Detected RTSP URL: %s\n", input_source);
+        
         auto pipelines = build_rtsp_pipelines(input_source);
         for (size_t i = 0; i < pipelines.size(); ++i) {
-            printf("Trying pipeline %zu/%zu: %s\n", i+1, pipelines.size(), pipelines[i].c_str());
-            if (capture.open(pipelines[i], cv::CAP_GSTREAMER)) {
-                printf("GStreamer backend opened successfully\n");
+            printf("Trying pipeline %zu/%zu:\n%s\n", i+1, pipelines.size(), pipelines[i].c_str());
+
+            capture = try_open_pipeline(pipelines[i], 3000); // 3s timeout
+            if (capture.isOpened()) {
+                printf("RTSP stream opened successfully with pipeline %zu\n", i+1);
                 capture_opened = true;
                 break;
             } else {
-                printf("GStreamer backend failed for pipeline: %s\n", pipelines[i].c_str());
+                printf("Pipeline %zu failed, trying next...\n", i+1);
             }
         }
     } else {
         printf("Unknown input source type: %s\n", input_source);
     }
-
     if (!capture_opened) {
         printf("ERROR: Failed to open capture from any backend for source: %s\n", input_source);
         return;
     }
     printf("Capture opened successfully\n");
     printf("done initializing MLInferenceThread\n");
+    
 }
 
 MLInferenceThread::~MLInferenceThread() {
@@ -460,7 +551,8 @@ void MLInferenceThread::operator()() {
         
         if (!frame_read_success) {
             consecutive_failures++;
-            if (consecutive_failures > 5) {
+            // Only attempt RTSP recovery if the source is RTSP
+            if ((strstr(video_source.c_str(), "rtsp://") || strstr(video_source.c_str(), "rtsps://")) && consecutive_failures > 5) {
                 capture.release();
                 auto pipelines = build_rtsp_pipelines(video_source);
                 for (size_t i = 0; i < pipelines.size(); ++i) {
@@ -477,7 +569,6 @@ void MLInferenceThread::operator()() {
                 }
                 consecutive_failures = 0; // Reset after reopening
             }
-            
             // Wait before next attempt
             std::this_thread::sleep_for(std::chrono::milliseconds(1000 / target_fps));
             continue;
