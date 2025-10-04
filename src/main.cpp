@@ -39,7 +39,23 @@ void signalHandler(int signum) {
 int main(int argc, char **argv) {
     // Set up logging and signal handling
     #ifdef DEBUG
-    freopen("/storage/sd/console.log", "a", stdout);
+    // Better logging approach - check if file is writable first
+    FILE* log_file = fopen("/storage/sd/console.log", "a");
+    if (log_file) {
+        // Enable line buffering for immediate flush
+        setvbuf(log_file, NULL, _IOLBF, 0);
+        printf("Logging to both console and /storage/sd/console.log\n");
+        fclose(log_file);
+        
+        // Redirect stdout with error checking
+        if (freopen("/storage/sd/console.log", "a", stdout) == NULL) {
+            fprintf(stderr, "WARNING: Failed to redirect stdout, using console only\n");
+        } else {
+            setvbuf(stdout, NULL, _IOLBF, 0); // Force immediate line-buffered output
+        }
+    } else {
+        printf("WARNING: Cannot write to /storage/sd/console.log, using console only\n");
+    }
     #endif
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
