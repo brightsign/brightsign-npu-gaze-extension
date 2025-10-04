@@ -176,7 +176,14 @@ setup_gstreamer_env() {
     export GST_PLUGIN_PATH=/var/volatile/bsext/ext_npu_gaze/$SOC_NAME/lib/gstreamer-1.0:/usr/lib/gstreamer-1.0
     export LD_LIBRARY_PATH=/var/volatile/bsext/ext_npu_gaze/$SOC_NAME/lib:/usr/lib:$LD_LIBRARY_PATH
     export GST_REGISTRY="/tmp/gst-registry.bin"
+    export GST_PLUGIN_SCANNER="/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
     export GST_REGISTRY_REUSE_PLUGIN_SCANNER=1
+    export GST_DEBUG_NO_COLOR=1
+    echo "  GST_PLUGIN_PATH=$GST_PLUGIN_PATH"
+    echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+    echo "  GST_REGISTRY=$GST_REGISTRY"
+    echo "  GST_PLUGIN_SCANNER=$GST_PLUGIN_SCANNER"
+    echo "  GST_REGISTRY_REUSE_PLUGIN_SCANNER=$GST_REGISTRY_REUSE_PLUGIN_SCANNER"
 }
 
 do_start() {
@@ -190,6 +197,9 @@ do_start() {
         echo "Auto-start is disabled for ${DAEMON_NAME}"
         return
     fi
+
+    SOC_NAME=$(get_soc_name)
+    setup_gstreamer_env
 
     # Start the attention_demo process as a daemon
     run_attention_demo true
@@ -205,9 +215,6 @@ do_start() {
         echo "Image stream server is disabled (port set to 0)"
         return
     fi
-    
-    SOC_NAME=$(get_soc_name)
-    setup_gstreamer_env
 
     # Start the image stream server process as a daemon
     run_stream_server true ${STREAM_SERVER_PORT}
