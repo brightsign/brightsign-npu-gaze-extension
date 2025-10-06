@@ -24,140 +24,111 @@
 #include "retinaface.h"
 #include "utils.h"
 
-
-std::atomic<bool> running{true};
-ThreadSafeQueue<InferenceResult> resultQueue(1);
+static std::atomic<bool> app_running{true};           // app lifetime only
+static ThreadSafeQueue<InferenceResult> resultQueue(1);
 
 void signalHandler(int signum) {
-    std::cout << "Interrupt signal (" << signum << ") received.\n";
-
-    // Cleanup and shutdown
-    running = false;
+    printf("Signal (%d) received. Shutting down...\n", signum);
+    app_running = false;
     resultQueue.signalShutdown();
 }
 
 int main(int argc, char **argv) {
-    // Set up logging and signal handling
-    #ifdef DEBUG
-    // Better logging approach - check if file is writable first
-    FILE* log_file = fopen("/storage/sd/console.log", "a");
-    if (log_file) {
-        // Enable line buffering for immediate flush
+#ifdef DEBUG
+    if (FILE* log_file = fopen("/storage/sd/console.log", "a")) {
         setvbuf(log_file, NULL, _IOLBF, 0);
-        printf("Logging to both console and /storage/sd/console.log\n");
         fclose(log_file);
-        
-        // Redirect stdout with error checking
         if (freopen("/storage/sd/console.log", "a", stdout) == NULL) {
-            fprintf(stderr, "WARNING: Failed to redirect stdout, using console only\n");
+            printf("WARNING: Failed to redirect stdout\n");
         } else {
-            setvbuf(stdout, NULL, _IOLBF, 0); // Force immediate line-buffered output
+            setvbuf(stdout, NULL, _IOLBF, 0);
         }
-    } else {
-        printf("WARNING: Cannot write to /storage/sd/console.log, using console only\n");
     }
-    #endif
-    signal(SIGINT, signalHandler);
+#endif
+
+    signal(SIGINT,  signalHandler);
     signal(SIGTERM, signalHandler);
-    
+
     printf("=== BrightSign NPU Gaze Extension Starting ===\n");
     printf("Build timestamp: %s %s\n", __DATE__, __TIME__);
-    
-    std::cout<<"DEBUG: OpenCV build information:\n";
-    std::cout << cv::getBuildInformation() << std::endl; 
-    
-    char *model_name = NULL;
+
     if (argc != 3) {
-        printf("Usage: %s <rknn model> <input_source> \n", argv[0]);
-        printf("\nInput source examples:\n");
-        printf("  USB Camera (device):     /dev/video0\n");
-        printf("  USB Camera (GStreamer):  \"v4l2src device=/dev/video1 ! videoconvert ! video/x-raw,format=BGR ! appsink\"\n");
-        printf("  RTSP Stream:             rtsp://192.168.1.100:554/stream\n");
-        printf("  RTSP with GStreamer:     \"rtspsrc location=rtsp://192.168.1.100:554/stream ! decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink\"\n");
-        printf("  Video File:              /path/to/video.mp4\n");
-        printf("  Test Pattern:            \"videotestsrc ! videoconvert ! video/x-raw,format=BGR ! appsink\"\n");
+        printf("Usage: %s <rknn model> <input_source>\n", argv[0]);
         return -1;
     }
+    const char* model_path   = argv[1];
+    const char* input_source = argv[2];
 
-    // The path where the model is located
-    model_name = (char *)argv[1];
-    char *input_source = argv[2];
-    printf("Starting with model: %s\n", model_name);
-    printf("Input source: %s\n", input_source);
-    // Initialize ML inference thread with error handling
-    printf("Initializing ML inference thread...\n");
-    try {
-        MLInferenceThread mlThread(
-            model_name,
-            input_source,
-            resultQueue, 
-            running,
-            20);
+    // Start publishers ONCE; they stay up while the app is up.
+    printf("Initializing publishers...\n");
+    auto json_fmt = std::make_shared<JsonMessageFormatter>();
+    auto bs_fmt   = std::make_shared<BSVariableMessageFormatter>();
 
-        printf("ML inference thread created successfully\n");
+    // Publishers consume resultQueue until app_running==false or queue shutdown.
+    std::atomic<bool> pubs_running{true};
+    UDPPublisher json_pub("127.0.0.1", 5002, resultQueue, pubs_running, json_fmt, 10);
+    UDPPublisher bsvar_pub("127.0.0.1", 5000, resultQueue, pubs_running, bs_fmt, 10);
 
-        // Initialize JSON UDP publisher
-        printf("Initializing JSON UDP publisher on 127.0.0.1:5002...\n");
-        auto json_formatter = std::make_shared<JsonMessageFormatter>();
-        UDPPublisher json_publisher(
-            "127.0.0.1",
-            5002,
-            resultQueue, 
-            running,
-            json_formatter,
-            10);
-        printf("JSON UDP publisher initialized\n");
+    std::thread json_publisherThread(std::ref(json_pub));
+    std::thread bsvar_publisherThread(std::ref(bsvar_pub));
 
-        // Initialize BrightSign variable UDP publisher  
-        printf("Initializing BrightSign variable UDP publisher on 127.0.0.1:5000...\n");
-        auto bsvar_formatter = std::make_shared<BSVariableMessageFormatter>();
-        UDPPublisher bsvar_publisher(
-            "127.0.0.1",
-            5000,
-            resultQueue, 
-            running,
-            bsvar_formatter,
-            10);
-        printf("BrightSign variable UDP publisher initialized\n");
+    // ---- Inference worker supervisor loop ----
+    while (app_running) {
+        // Per-worker running flag (separate from app_running)
+        std::atomic<bool> worker_running{true};
+        std::atomic<bool> worker_dead{false};
 
-        // Start all threads
-        printf("Starting inference and publisher threads...\n");
-        std::thread inferenceThread(std::ref(mlThread));
-        std::thread json_publisherThread(std::ref(json_publisher));
-        std::thread bsvar_publisherThread(std::ref(bsvar_publisher));
-        
-        printf("All threads started successfully\n");
-        printf("Gaze tracking system is now running...\n");
+        // Wrap the worker so we can mark worker_dead when it exits
+        std::thread worker_thread([&](){
+            try {
+                MLInferenceThread worker(
+                    model_path,
+                    input_source,
+                    resultQueue,
+                    worker_running,   // this controls ONE worker lifetime
+                    20                // target fps (if you use it internally)
+                );
+                // Run the worker loop
+                worker();
+            } catch (const std::exception& e) {
+                printf("Worker exception: %s\n", e.what());
+            } catch (...) {
+                printf("Worker exception: unknown\n");
+            }
+            worker_dead = true;
+        });
 
-        // Main loop with graceful shutdown
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+        // Monitor the worker; respawn if it finishes while app is still running
+        while (app_running && !worker_dead.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
 
-        // Cleanup and shutdown
-        printf("Shutting down gaze tracking system...\n");
-        running = false;
-        resultQueue.signalShutdown();
+        // If app is stopping, ask the worker to stop too.
+        if (!app_running) {
+            worker_running = false;
+        }
 
-        // Join threads with timeout protection
-        printf("Waiting for threads to complete...\n");
-        inferenceThread.join();
-        json_publisherThread.join();
-        bsvar_publisherThread.join();
-        printf("✓ All threads completed successfully\n");
-        printf("=== BrightSign NPU Gaze Extension Shutdown Complete ===\n");
-        
-    } catch (const std::exception& e) {
-        printf("ERROR: Exception during initialization: %s\n", e.what());
-        running = false;
-        resultQueue.signalShutdown();
-        return -1;
-    } catch (...) {
-        printf("ERROR: Unknown exception during initialization\n");
-        running = false;
-        resultQueue.signalShutdown();
-        return -1;
+        // Join the worker (will return immediately if already finished)
+        if (worker_thread.joinable()) worker_thread.join();
+
+        if (!app_running) break;
+
+        // Worker finished but app is still running → respawn
+        printf("Inference worker exited. Restarting in 500 ms...\n");
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
+    // App shutdown: stop publishers and wait for them
+    printf("Shutting down gaze tracking system...\n");
+    app_running = false;
+    resultQueue.signalShutdown();
+    // stop publisher loops
+    pubs_running = false;
+
+    if (json_publisherThread.joinable())  json_publisherThread.join();
+    if (bsvar_publisherThread.joinable()) bsvar_publisherThread.join();
+
+    printf("All threads completed successfully\n");
+    printf("=== BrightSign NPU Gaze Extension Shutdown Complete ===\n");
     return 0;
 }

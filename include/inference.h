@@ -42,9 +42,14 @@ private:
     cv::Mat prod_rgb;
     std::atomic<long long> capture_convert_ns{0};
     std::atomic<long long> infer_ns{0};
+    // Used to signal producer/consumer to quit when source is gone
+    std::atomic<bool> source_broken{false};
+    // Store the opened USB device path so we can detect unplug
+    std::string usb_dev_path;
     void producerLoop();
 
     InferenceResult runInference(cv::Mat& img);
+    bool acquireSourceLoop(int backoff_ms = 500, int backoff_max_ms = 5000);
 
 public:
     MLInferenceThread(
