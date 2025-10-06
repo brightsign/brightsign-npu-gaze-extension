@@ -4,11 +4,16 @@
 
 This project provides a complete, automated build system to create BrightSign extensions that run RetinaFace-based gaze detection on the NPU at real-time performance, detecting faces and determining if people are looking at the screen.
 
+## Latest Improvements
+
+- Now supports RTSP streams, including higer resolution (2K) streams
+- Now supports auto-recovery if there's a loss of stream or USB camera re-plug
+
 ## Use It vs. Build It
 
 If you just want to use this BSMP extension but don't want to build it, you can just download it.
 
-* [cobra-standalone-npu_gaze-0.1.6-alpha.bsfw](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.1.6-alpha/cobra-standalone-npu_gaze-0.1.6-alpha.bsfw)
+* [cobra-standalone-npu_gaze-0.2.1-best.bsfw](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.2.1-beta/cobra-standalone-npu_gaze-0.2.1-beta.bsfw)
 
 It can be installed just like any other BrightSign firmware upgrade:  copy it to an SD card and boot the player with that card inserted.
 
