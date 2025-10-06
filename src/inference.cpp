@@ -515,6 +515,13 @@ static void wait_for_network_with_validation(int retries = 30, int delay_sec = 2
     printf("ERROR: No network interface got an IP after %d attempts\n", retries);
 }
 
+MLInferenceThread::~MLInferenceThread() {
+    release_retinaface_model(&rknn_app_ctx);
+    running = false;
+    resultQueue.signalShutdown();
+}
+
+
 MLInferenceThread::MLInferenceThread(
     const char* model_path,
     const char* input_source,
@@ -537,165 +544,249 @@ MLInferenceThread::MLInferenceThread(
     printf("DEBUG: OpenCV version: %s\n", cv::getVersionString().c_str());
     video_source = input_source;
 
-    bool capture_opened = false;
-    printf("Waiting for network before opening RTSP...\n");
-    wait_for_network_with_validation();
-
-
-    // --- Case A: explicit USB request
-    auto open_usb = [&]() -> bool {
-        std::string dev = findWorkingCameraDevice();
-        if (dev.empty()) {
-            printf("No working USB camera found!\n");
-            return false;
-        }
-        printf("Detected USB camera device: %s\n", dev.c_str());
-        if (!capture.open(dev, cv::CAP_V4L2)) {
-            printf("V4L2 backend failed for device: %s\n", dev.c_str());
-            return false;
-        }
-        // (Optional) try to guide the camera to a sane mode
-        capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
-        capture.set(cv::CAP_PROP_FRAME_WIDTH,  1280);
-        capture.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
-        capture.set(cv::CAP_PROP_FPS, 30);
-        using_rtsp = false;
-        return true;
-    };
-
-    // --- Case B: RTSP URL given → try RTSP and then USB fallback
+    // Only wait for network when an RTSP URL is requested
     if (strstr(input_source, "rtsp://") || strstr(input_source, "rtsps://")) {
-        ensure_gstreamer_runtime();
-        gst_init_once();
-
-        printf("Detected RTSP URL: %s\n", input_source);
-        auto pipelines = build_rtsp_nv12_pipelines(input_source);
-
-        for (size_t i = 0; i < pipelines.size(); ++i) {
-            printf("Trying pipeline %zu/%zu:\n%s\n", i+1, pipelines.size(), pipelines[i].c_str());
-            std::unique_ptr<RtspNv12Source> tmp(new RtspNv12Source());
-            if (tmp->open(pipelines[i], 3000)) {       // match standalone timeout
-                rtsp = std::move(tmp);
-                using_rtsp = true;
-                capture_opened = true;
-                break;
-            } else {
-                printf("Pipeline %zu failed, trying next...\n", i+1);
-            }
-        }
-
-        if (!capture_opened) {
-            printf("RTSP open failed — falling back to USB camera probe...\n");
-            capture_opened = open_usb();
-        }
-
-    } else if (strcmp(input_source, "usb_camera") == 0 || strcmp(input_source, "usb") == 0) {
-        // If caller asked for USB, do that directly
-        capture_opened = open_usb();
-
-    } else {
-        // Unknown token → try USB as a best-effort fallback
-        printf("Unknown input source token '%s' — attempting USB camera.\n", input_source);
-        capture_opened = open_usb();
+        printf("Waiting for network before opening RTSP...\n");
+        wait_for_network_with_validation();
     }
 
-    if (!capture_opened) {
-        printf("ERROR: Failed to open capture from any backend (RTSP/USB)\n");
-        return; // IMPORTANT: do not allocate latest/prod_rgb or start loops
-    }
-
-    // Only allocate frame buffers after a source is open
-    latest = std::make_unique<LatestFrame>();
-    latest->prealloc(NET_W, NET_H);
-    prod_rgb.create(NET_H, NET_W, CV_8UC3);
-    prod_rgb.setTo(cv::Scalar(0,0,0));
-
-    printf("Capture opened successfully\n");
-    printf("done initializing MLInferenceThread\n");
+    // Acquisition (RTSP/USB) is handled by acquireSourceLoop() called from operator().
+    // This prevents the thread from exiting when sources are absent at startup.
+    printf("Constructor complete — capture will be acquired in operator() via acquireSourceLoop().\n");
 }
 
-
-MLInferenceThread::~MLInferenceThread() {
-    release_retinaface_model(&rknn_app_ctx);
-    running = false;
-    resultQueue.signalShutdown();
-}
 
 // ===============================
 // Producer thread (capture + convert)
 // ===============================
 void MLInferenceThread::producerLoop() {
     using clock = std::chrono::steady_clock;
+
+    int consecutive_fail = 0;
+    auto last_ok = clock::now();
+
     while (running) {
         auto start = clock::now();
         bool ok = false;
 
         if (using_rtsp) {
-            ok = rtsp->pull_into_rgb(prod_rgb);  // now does NV12 scale → RGB 320x320
+            ok = rtsp->pull_into_rgb(prod_rgb);  // returns quickly if no sample
         } else {
-            // USB path: BGR → RGB + resize (RGA)
             cv::Mat frame_bgr;
-            ok = capture.read(frame_bgr) && !frame_bgr.empty();
+            if (capture.isOpened()) {
+                ok = capture.read(frame_bgr) && !frame_bgr.empty();
+            } else {
+                ok = false;
+            }
+
             if (ok) {
+                // BGR->RGB, resize to NET_W x NET_H (RGA preferred)
                 cv::Mat rgb_full(frame_bgr.rows, frame_bgr.cols, CV_8UC3);
                 rga_buffer_t src_bgr = wrapbuffer_virtualaddr(frame_bgr.data, frame_bgr.cols, frame_bgr.rows, RK_FORMAT_BGR_888);
-                rga_buffer_t dst_rgb = wrapbuffer_virtualaddr(rgb_full.data, rgb_full.cols, rgb_full.rows, RK_FORMAT_RGB_888);
+                rga_buffer_t dst_rgb = wrapbuffer_virtualaddr(rgb_full.data,  rgb_full.cols,  rgb_full.rows,  RK_FORMAT_RGB_888);
                 int ret = imcvtcolor(src_bgr, dst_rgb, RK_FORMAT_BGR_888, RK_FORMAT_RGB_888, IM_SYNC);
                 if (ret != IM_STATUS_SUCCESS) {
                     cv::cvtColor(frame_bgr, rgb_full, cv::COLOR_BGR2RGB);
                 }
-                rga_buffer_t src_rgb = wrapbuffer_virtualaddr(rgb_full.data, rgb_full.cols, rgb_full.rows, RK_FORMAT_RGB_888);
-                rga_buffer_t dst_rgb_small = wrapbuffer_virtualaddr(prod_rgb.data, prod_rgb.cols, prod_rgb.rows, RK_FORMAT_RGB_888);
+                rga_buffer_t src_rgb      = wrapbuffer_virtualaddr(rgb_full.data, rgb_full.cols, rgb_full.rows, RK_FORMAT_RGB_888);
+                rga_buffer_t dst_rgb_small = wrapbuffer_virtualaddr(prod_rgb.data,  prod_rgb.cols,  prod_rgb.rows,  RK_FORMAT_RGB_888);
                 double fx = (double)prod_rgb.cols / rgb_full.cols;
                 double fy = (double)prod_rgb.rows / rgb_full.rows;
                 ret = imresize(src_rgb, dst_rgb_small, fx, fy, 0, IM_SYNC);
                 if (ret != IM_STATUS_SUCCESS) {
-                    cv::resize(rgb_full, prod_rgb, cv::Size(NET_W, NET_H), 0, 0, cv::INTER_AREA);
+                    cv::resize(rgb_full, prod_rgb, prod_rgb.size(), 0, 0, cv::INTER_AREA);
                 }
             }
         }
 
         if (ok) {
+            consecutive_fail = 0;
+            last_ok = clock::now();
             latest->set(prod_rgb);
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            consecutive_fail++;
+
+            // USB unplug detection: the /dev node disappears
+            if (!using_rtsp && !usb_dev_path.empty() && access(usb_dev_path.c_str(), F_OK) != 0) {
+                printf("USB device disappeared: %s\n", usb_dev_path.c_str());
+                source_broken.store(true, std::memory_order_release);
+                break; // exit producer
+            }
+
+            // Stalled source (no frames for >3s)
+            if (std::chrono::duration_cast<std::chrono::seconds>(clock::now() - last_ok).count() >= 3) {
+                printf("Source stalled for >3s; marking broken\n");
+                source_broken.store(true, std::memory_order_release);
+                break; // exit producer
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
 
         auto end = clock::now();
         capture_convert_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count(),
                                      std::memory_order_relaxed);
     }
+
+    // Clean up capture if USB path
+    if (!using_rtsp && capture.isOpened()) {
+        capture.release();
+    }
 }
 
-// ===============================
-// Main loop — Consumer (inference)
-// ===============================
-void MLInferenceThread::operator()() {
-    std::thread producer;
-    if (using_rtsp || capture.isOpened()) {
-        producer = std::thread(&MLInferenceThread::producerLoop, this);
+// Add to MLInferenceThread class (private):
+bool MLInferenceThread::acquireSourceLoop(int backoff_ms, int backoff_max_ms) {
+    using namespace std::chrono;
+
+    auto open_usb = [&]() -> bool {
+        // Reuse last known device if we have it; otherwise probe
+        std::string dev = usb_dev_path;
+        if (dev.empty() || access(dev.c_str(), R_OK) != 0) {
+            dev = findWorkingCameraDevice();
+        }
+        if (dev.empty()) {
+            printf("No working USB camera found!\n");
+            return false;
+        }
+
+        printf("Detected USB camera device: %s\n", dev.c_str());
+        usb_dev_path = dev;
+
+        cv::VideoCapture tmp(dev, cv::CAP_V4L2);
+        if (!tmp.isOpened()) {
+            printf("V4L2 backend failed for device: %s\n", dev.c_str());
+            return false;
+        }
+
+        // Try to guide the camera into a sane mode
+        tmp.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
+        tmp.set(cv::CAP_PROP_FRAME_WIDTH,  1280);
+        tmp.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+        tmp.set(cv::CAP_PROP_FPS, 30);
+
+        // Swap into our member
+        capture.release();
+        capture = std::move(tmp);
+        using_rtsp = false;
+
+        printf("USB camera opened successfully\n");
+        return true;
+    };
+
+    int delay_ms = backoff_ms;
+    while (running) {
+        bool opened = false;
+
+        // If RTSP was requested, try RTSP first
+        if (!video_source.empty() &&
+            (video_source.rfind("rtsp://",0)==0 || video_source.rfind("rtsps://",0)==0)) {
+
+            ensure_gstreamer_runtime();
+            gst_init_once();
+
+            auto pipelines = build_rtsp_nv12_pipelines(video_source);
+            for (size_t i = 0; i < pipelines.size() && running; ++i) {
+                printf("Trying pipeline %zu/%zu:\n%s\n", i+1, pipelines.size(), pipelines[i].c_str());
+                std::unique_ptr<RtspNv12Source> tmp(new RtspNv12Source());
+                if (tmp->open(pipelines[i], 3000)) {  // 3s like standalone
+                    rtsp = std::move(tmp);
+                    using_rtsp = true;
+                    opened = true;
+                    break;
+                } else {
+                    printf("Pipeline %zu failed, trying next...\n", i+1);
+                }
+            }
+
+            if (!opened) {
+                printf("RTSP open failed — falling back to USB camera probe...\n");
+                opened = open_usb();
+            }
+        } else {
+            // Non-RTSP token → try USB directly
+            opened = open_usb();
+        }
+
+        if (opened) {
+            // Preallocate producer/consumer buffers (only once per open)
+            if (!latest) latest = std::make_unique<LatestFrame>();
+            latest->prealloc(NET_W, NET_H);
+            if (prod_rgb.empty()) {
+                prod_rgb.create(NET_H, NET_W, CV_8UC3);
+            }
+            prod_rgb.setTo(cv::Scalar(0,0,0));
+            printf("Capture opened successfully\n");
+            return true;
+        }
+
+        // Nothing available → idle + exponential backoff
+        printf("No source available (RTSP/USB). Retrying in %d ms...\n", delay_ms);
+        for (int t=0; t<delay_ms && running; t+=200) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+        delay_ms = std::min(delay_ms * 2, backoff_max_ms);
     }
+    return false;
+}
+
+void MLInferenceThread::operator()() {
+    // Try to acquire a source (blocks with backoff until success or running==false)
+    if (!acquireSourceLoop(/*backoff_ms=*/500, /*backoff_max_ms=*/5000)) {
+        printf("MLInferenceThread main loop exited (no source and stopping)\n");
+        return;
+    }
+
+    std::thread producer;
+    if (using_rtsp || capture.isOpened())
+        producer = std::thread(&MLInferenceThread::producerLoop, this);
 
     auto last_fps_time = std::chrono::steady_clock::now();
     
-
     printf("MLInferenceThread main loop starting\n");
 
     while (running) {
         cv::Mat rgb;
-        if (!latest->get(rgb, /*wait_ms=*/50)) {
+        // Wait for a produced frame; if none for a while, check health and reacquire.
+        if (!latest->get(rgb, /*wait_ms=*/300)) {
+            // If producer likely died (e.g., unplugged USB or RTSP dropped)
+            bool need_reacquire = false;
+            if (using_rtsp) {
+                // If RTSP appsink starved repeatedly, producerLoop will stall → reacquire
+                need_reacquire = true;
+            } else {
+                // For USB, if capture is closed, we must reacquire
+                if (!capture.isOpened()) need_reacquire = true;
+            }
+
+            if (need_reacquire) {
+                if (producer.joinable()) producer.join();
+                // Tear down existing
+                capture.release();
+                rtsp.reset();
+
+                // Block until new source appears (or we’re stopping)
+                if (!acquireSourceLoop(/*backoff_ms=*/500, /*backoff_max_ms=*/5000)) break;
+
+                // Relaunch producer
+                if (using_rtsp || capture.isOpened())
+                    producer = std::thread(&MLInferenceThread::producerLoop, this);
+            }
             continue;
         }
 
+        // Inference
         auto t0 = std::chrono::steady_clock::now();
         InferenceResult result = runInference(rgb);
         auto t1 = std::chrono::steady_clock::now();
         infer_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count(),
                            std::memory_order_relaxed);
-
         resultQueue.push(std::move(result));
 
-        // -------- Debug save (IMPORTANT: imwrite expects BGR) --------
+        // Optional throttle
+        if (target_fps > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / target_fps));
+        }
+
         try {
             cv::Mat dbg_bgr;
             cv::cvtColor(rgb, dbg_bgr, cv::COLOR_RGB2BGR);
@@ -705,20 +796,19 @@ void MLInferenceThread::operator()() {
 
         #if DEBUG_FPS
         int frame_count = 0;
+        // Periodic perf print
         frame_count++;
-
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - last_fps_time).count() >= 5) {
             double secs = std::chrono::duration<double>(now - last_fps_time).count();
             long long cap_ns = capture_convert_ns.exchange(0, std::memory_order_relaxed);
             long long inf_ns = infer_ns.exchange(0, std::memory_order_relaxed);
-
             double fps = frame_count / secs;
-            double cap_ms = (frame_count > 0) ? (cap_ns / 1e6) / frame_count : 0.0;
-            double inf_ms = (frame_count > 0) ? (inf_ns / 1e6) / frame_count : 0.0;
+            double cap_ms = (frame_count ? (cap_ns/1e6)/frame_count : 0.0);
+            double inf_ms = (frame_count ? (inf_ns/1e6)/frame_count : 0.0);
 
             printf("Performance: %.1f FPS | Frame %dx%d | avg capture+convert: %.2f ms | avg inference: %.2f ms\n",
-                   fps, NET_W, NET_H, cap_ms, inf_ms);
+                   NET_W==0?0:fps, NET_W, NET_H, cap_ms, inf_ms);
 
             frame_count = 0;
             last_fps_time = now;
