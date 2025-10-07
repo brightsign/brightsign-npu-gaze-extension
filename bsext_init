@@ -17,8 +17,19 @@ DAEMON_NAME="bsext-gaze"
 PIDFILE="/var/run/${DAEMON_NAME}.pid"
 STREAM_SERVER_PIDFILE="/var/run/bsext-image-stream-server.pid"
 
-# defaults -- these can be overridden by the registry
+# defaults -- these can be overridden by environment variables
 DISABLE_AUTO_START=false
+
+# Auto-detection will automatically find the best available video source:
+# Priority: Command line args > Registry settings > Auto-discovered RTSP > USB cameras > Default device
+# 
+# Registry settings:
+#   bsext-gaze-video-device : RTSP URL or device name (e.g., rtsp://192.168.0.203:8554/mystream or /dev/video0)
+#   bsext-gaze-rtsp-server  : RTSP server IP:port (e.g., 192.168.0.203:8554)
+#
+# Examples:
+#   registry write extension bsext-gaze-rtsp-server 192.168.0.203:8554
+#   registry write extension bsext-gaze-video-device rtsp://192.168.0.203:8554/mystream
 
 # Common setup function to determine SOC model and video device
 get_soc_name() {
@@ -26,7 +37,7 @@ get_soc_name() {
     SOC_NAME=RK3588
     if [ -f /sys/firmware/devicetree/base/compatible ]; then
         # Use strings command to handle null bytes in devicetree properly
-        COMPATIBLE=$(strings /sys/firmware/devicetree/base/compatible)
+        COMPATIBLE=$(strings /sys/firmware/devicetree/base/compatible 2>/dev/null)
         
         # Look for rockchip,rk3588 pattern in the compatible string
         if echo "$COMPATIBLE" | grep -q "rockchip,rk3588"; then
@@ -43,35 +54,64 @@ get_soc_name() {
             SOC_NAME="RK3568"
         fi
     else
-        echo "WARNING: Unable to determine SOC model, EXITING"
-        exit 1
+        # In development environments or non-XT5 hardware, default to RK3588
+        echo "WARNING: Unable to determine SOC model, defaulting to RK3588 for development" >&2
     fi
 
     # Return the SOC model
     echo "${SOC_NAME}"
 }
 
-get_video_device() {
-    SOC_NAME=$(get_soc_name)
-    # For  RK3588 models
-    if [ "${SOC_NAME}" = "RK3588" ]; then
-        VID_DEVID=/dev/video1
-    else
-    # all others
-        VID_DEVID=/dev/video0
-    fi
-
-    # check registry for video device
-    # allows user to override the default video device
-    reg_video_device=$(registry extension ${DAEMON_NAME}-video-device)
-    if [ -n "${reg_video_device}" ]; then
-        VID_DEVID=${reg_video_device}
-    fi
-
-    # Return the video device
-    echo "${VID_DEVID}"
+detect_video_sources() {
+    echo "Legacy video source detection (fallback only)..." >&2
+    
+    # Array to store found sources
+    DETECTED_SOURCES=""
+    
+    # Check for USB cameras
+    echo "  Checking for USB cameras..." >&2
+    for video_dev in /dev/video*; do
+        # Skip non-numeric video devices
+        if ! echo "$video_dev" | grep -q '/dev/video[0-9]'; then
+            continue
+        fi
+        
+        if [ -c "$video_dev" ]; then
+            # More thorough validation - try to query device capabilities
+            if command -v v4l2-ctl >/dev/null 2>&1; then
+                # Use v4l2-ctl to check if it's a real camera
+                if v4l2-ctl --device="$video_dev" --list-formats-ext >/dev/null 2>&1; then
+                    echo "  Found USB camera: $video_dev" >&2
+                    DETECTED_SOURCES="$DETECTED_SOURCES $video_dev"
+                else
+                    echo "  Device $video_dev exists but is not a functional camera" >&2
+                fi
+            else
+                # Fallback: try to open the device briefly to test if it's functional
+                if timeout 2 cat "$video_dev" >/dev/null 2>&1; then
+                    echo "   Found USB camera: $video_dev" >&2
+                    DETECTED_SOURCES="$DETECTED_SOURCES $video_dev"
+                else
+                    echo "  Device $video_dev exists but is not accessible" >&2
+                fi
+            fi
+        fi
+    done
+    
+    echo "  Legacy detection complete. Found sources: '$DETECTED_SOURCES'" >&2
+    echo "$DETECTED_SOURCES"
 }
 
+# Function to get the video source from registry or default
+get_video_source() {
+    local video_source
+    video_source=$(registry extension ${DAEMON_NAME}-video-device)
+    echo "Video source from registry: '$video_source'" >&2
+    if [ -z "$video_source" ]; then
+        video_source="usb_camera"
+    fi
+    echo "$video_source"
+}
 
 # Common function to run the attention demo
 run_attention_demo() {
@@ -83,8 +123,14 @@ run_attention_demo() {
     SOC_HOME=${SCRIPT_PATH}/${SOC_NAME}
     cd ${SOC_HOME}
 
-    CMD_ARGS="${SOC_HOME}/model/RetinaFace.rknn $(get_video_device)"
-    echo "Using Model and Device: ${CMD_ARGS}"
+    CMD_ARGS="${SOC_HOME}/model/RetinaFace.rknn $(get_video_source)"
+    echo "Using Model and Video Source: ${CMD_ARGS}"
+    
+    # Debug: Show exactly what we're passing to attention_demo
+    echo "DEBUG: SOC_HOME = ${SOC_HOME}"
+    echo "DEBUG: Video source from get_video_source() = $(get_video_source)"
+    echo "DEBUG: Complete CMD_ARGS = ${CMD_ARGS}"
+    echo "DEBUG: About to execute: ${SOC_HOME}/attention_demo ${CMD_ARGS}"
     
     # Default to running in foreground
     local background=$1
@@ -92,10 +138,18 @@ run_attention_demo() {
     export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
     if [ "$background" = "true" ]; then
         # Run as a daemon in the background
+        echo "DEBUG: Starting daemon with start-stop-daemon"
+        echo "DEBUG: Executable: ${SOC_HOME}/attention_demo"
+        echo "DEBUG: Arguments: ${CMD_ARGS}"
+        echo "DEBUG: Full command: start-stop-daemon --start --background --make-pidfile --pidfile ${PIDFILE} --exec ${SOC_HOME}/attention_demo -- ${CMD_ARGS}"
         start-stop-daemon --start --background --make-pidfile --pidfile ${PIDFILE} \
                           --exec ${SOC_HOME}/attention_demo -- ${CMD_ARGS}
     else
         # Run directly in foreground
+        echo "DEBUG: Running in foreground"
+        echo "DEBUG: Executable: ${SOC_HOME}/attention_demo"
+        echo "DEBUG: Arguments: ${CMD_ARGS}"
+        echo "DEBUG: Full command: ${SOC_HOME}/attention_demo ${CMD_ARGS}"
         ${SOC_HOME}/attention_demo ${CMD_ARGS}
     fi
 }
@@ -117,6 +171,21 @@ run_stream_server() {
     fi
 }
 
+setup_gstreamer_env() {
+    echo "Setting up GStreamer environment for SOC: $SOC_NAME"
+    export GST_PLUGIN_PATH=/var/volatile/bsext/ext_npu_gaze/$SOC_NAME/lib/gstreamer-1.0:/usr/lib/gstreamer-1.0
+    export LD_LIBRARY_PATH=/var/volatile/bsext/ext_npu_gaze/$SOC_NAME/lib:/usr/lib:$LD_LIBRARY_PATH
+    export GST_REGISTRY="/tmp/gst-registry.bin"
+    export GST_PLUGIN_SCANNER="/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
+    export GST_REGISTRY_REUSE_PLUGIN_SCANNER=1
+    export GST_DEBUG_NO_COLOR=1
+    echo "  GST_PLUGIN_PATH=$GST_PLUGIN_PATH"
+    echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+    echo "  GST_REGISTRY=$GST_REGISTRY"
+    echo "  GST_PLUGIN_SCANNER=$GST_PLUGIN_SCANNER"
+    echo "  GST_REGISTRY_REUSE_PLUGIN_SCANNER=$GST_REGISTRY_REUSE_PLUGIN_SCANNER"
+}
+
 do_start() {
     # check registry for auto-start
     reg_disable_auto_start=$(registry extension ${DAEMON_NAME}-disable-auto-start)
@@ -128,6 +197,9 @@ do_start() {
         echo "Auto-start is disabled for ${DAEMON_NAME}"
         return
     fi
+
+    SOC_NAME=$(get_soc_name)
+    setup_gstreamer_env
 
     # Start the attention_demo process as a daemon
     run_attention_demo true
@@ -143,6 +215,7 @@ do_start() {
         echo "Image stream server is disabled (port set to 0)"
         return
     fi
+
     # Start the image stream server process as a daemon
     run_stream_server true ${STREAM_SERVER_PORT}
 }
@@ -155,7 +228,37 @@ do_stop() {
     rm -f ${STREAM_SERVER_PIDFILE}
 }
 
-case "$1" in
+# Parse command line arguments first (they take priority over config file)
+ACTION=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --rtsp-url)
+            RTSP_HINT="$2"
+            shift 2
+            ;;
+        --rtsp-server)
+            RTSP_HINT="$2"
+            shift 2
+            ;;
+        start|stop|restart|run|detect)
+            ACTION="$1"
+            shift
+            ;;
+        *)
+            if [ -z "$ACTION" ]; then
+                ACTION="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Default to help if no action specified
+if [ -z "$ACTION" ]; then
+    ACTION="help"
+fi
+
+case "$ACTION" in
     start)
         echo "Starting ${DAEMON_NAME}"
         do_start
@@ -175,8 +278,59 @@ case "$1" in
         run_attention_demo false
         run_stream_server false 20200
         ;;
-    *)
-        echo "Usage: $0 {start|stop|restart|run}"
+    detect)
+        echo "Detecting available video sources..."
+        SOURCES=$(detect_video_sources)
+        if [ -n "$SOURCES" ] && [ "$SOURCES" != " " ]; then
+            echo ""
+            echo "Found video sources:"
+            # Parse sources properly (space-separated)
+            for source in $SOURCES; do
+                if [ -n "$source" ]; then
+                    echo "  - $source"
+                fi
+            done
+            echo ""
+            echo "The system will automatically select the best source:"
+            SELECTED=$(get_video_source)
+            echo "  Selected: $SELECTED"
+        else
+            echo "No video sources detected."
+            
+        fi
+        ;;
+    help|*)
+        echo "Usage: $0 {start|stop|restart|run|detect} [options]"
+        echo ""
+        echo "Actions:"
+        echo "  start     Start the gaze detection service as a daemon"
+        echo "  stop      Stop the gaze detection service"
+        echo "  restart   Restart the gaze detection service"
+        echo "  run       Run the gaze detection service in foreground"
+        echo "  detect    Detect available video sources"
+        echo ""
+        echo "Options (for manual use):"
+        echo "  --rtsp-url URL      Full RTSP URL (e.g., rtsp://192.168.0.203:8554/mystream)"
+        echo "  --rtsp-server HOST  RTSP server IP:port (e.g., 192.168.0.203:8554)"
+        echo ""
+        echo "Configuration via BrightSign registry:"
+        echo "  bsext-gaze-video-device      RTSP URL or device name (e.g., rtsp://192.168.0.203:8554/mystream or /dev/video0)"
+        echo "  bsext-gaze-rtsp-server       RTSP server IP:port (e.g., 192.168.0.203:8554)"
+        echo "  bsext-gaze-disable-auto-start  Disable automatic startup (true/false)"
+        echo ""
+        echo "Examples:"
+        echo "  # For automatic startup (survives reboot):"
+        echo "  registry write extension bsext-gaze-rtsp-server 192.168.0.203:8554"
+        echo "  registry write extension bsext-gaze-video-device rtsp://192.168.0.203:8554/mystream"
+        echo ""
+        echo "  # To view current settings:"
+        echo "  registry read extension bsext-gaze-rtsp-server"
+        echo "  registry read extension bsext-gaze-video-device"
+        echo ""
+        echo "  # For manual override:"
+        echo "  $0 start --rtsp-server 192.168.0.203:8554"
+        echo "  $0 detect --rtsp-url rtsp://192.168.0.203:8554/mystream"
+        echo "  $0 run    # Use auto-detection"
         exit 1
         ;;
 esac

@@ -21,6 +21,30 @@ TOOLCHAIN_TARGET_TASK += "\
     rockchip-rga \
 "
 
+# --- GStreamer: core + plugins needed for RTSP -> BGR via appsink ---
+# Using broader package approach since specific sub-packages don't exist  
+# Adding development packages to ensure complete plugin sets are built
+TOOLCHAIN_TARGET_TASK:append = " \
+    gstreamer1.0 \
+    gstreamer1.0-dev \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-base-dev \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-good-dev \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-bad-dev \
+    gstreamer1.0-libav \
+"
+TOOLCHAIN_TARGET_TASK:append = " ext-bundle "
+
+# Try to force inclusion of all available plugins by adding complete sets
+# Some plugins may be disabled by default in the build configuration  
+TOOLCHAIN_TARGET_TASK:append = " \
+    gstreamer1.0-plugins-base-meta \
+    gstreamer1.0-plugins-good-meta \
+    gstreamer1.0-plugins-bad-meta \
+"
+
 # The filename ends up with "toolchain" in it later (via
 # TOOLCHAIN_OUTPUTNAME) so we don't really need to say "sdk".
 SDK_NAME_PREFIX = "brightsign"

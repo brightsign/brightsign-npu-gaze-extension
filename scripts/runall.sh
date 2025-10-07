@@ -84,7 +84,7 @@ cleanup_all() {
     print_warning "- Downloaded BrightSign OS source files"
     print_warning "- Extracted directories (brightsign-oe)"
     print_warning "- Docker images (bsoe-build, rknn_tk2)"
-    print_warning "- Build directories (build_xt5, build_ls5)"
+    print_warning "- Build directories (build_xt5, build_rk3576, build_ls5)"
     print_warning "- SDK installation (sdk directory)"
     print_warning "- Toolkit repositories (toolkit directory)"
     print_warning "- Generated packages (*.zip files)"
@@ -148,6 +148,7 @@ cleanup_all() {
     # Remove build directories
     print_status "Removing build directories..."
     rm -rf build_xt5
+    rm -rf build_rk3576
     rm -rf build_ls5
     
     # Remove SDK installation
@@ -167,6 +168,7 @@ cleanup_all() {
     print_status "Cleaning install directory..."
     if [ -d "install" ]; then
         rm -rf install/RK3568
+        rm -rf install/RK3576
         rm -rf install/RK3588
         rm -f install/bsext_init
         rm -f install/uninstall.sh
@@ -457,6 +459,7 @@ step4_compile_models() {
 - Build Docker container for model compilation
 - Download RetinaFace model
 - Compile model for RK3588 (XT-5 players)
+- Compile model for RK3576 
 - Compile model for RK3568 (LS-5 players)"
 
 
@@ -490,6 +493,7 @@ step4_compile_models() {
     # Download model
     cd "$project_root/toolkit/rknn_model_zoo/"
     mkdir -p examples/RetinaFace/model/RK3588
+    mkdir -p examples/RetinaFace/model/RK3576
     mkdir -p examples/RetinaFace/model/RK3568
     
     pushd examples/RetinaFace/model
@@ -510,6 +514,15 @@ step4_compile_models() {
         print_status "RK3588 model already compiled"
     fi
 
+    # Compile model for RK3576
+    if [ ! -f "examples/RetinaFace/model/RK3576/RetinaFace.rknn" ]; then
+        print_status "Compiling model for RK3576..."
+        docker run -it --rm -v $(pwd):/zoo rknn_tk2 /bin/bash \
+            -c "cd /zoo/examples/RetinaFace/python && python convert.py ../model/RetinaFace_mobile320.onnx rk3576 i8 ../model/RK3576/RetinaFace.rknn"
+    else
+        print_status "RK3576 model already compiled"
+    fi
+
     # Compile model for RK3568 (LS-5 players)
     if [ ! -f "examples/RetinaFace/model/RK3568/RetinaFace.rknn" ]; then
         print_status "Compiling model for RK3568 (LS-5 players)..."
@@ -521,9 +534,11 @@ step4_compile_models() {
 
     # Copy models to install directory
     mkdir -p "$project_root/install/RK3588/model"
+    mkdir -p "$project_root/install/RK3576/model"
     mkdir -p "$project_root/install/RK3568/model"
     
     cp examples/RetinaFace/model/RK3588/RetinaFace.rknn "$project_root/install/RK3588/model/"
+    cp examples/RetinaFace/model/RK3576/RetinaFace.rknn "$project_root/install/RK3576/model/"
     cp examples/RetinaFace/model/RK3568/RetinaFace.rknn "$project_root/install/RK3568/model/"
 
     print_status "Step 4 completed successfully!"
@@ -535,6 +550,7 @@ step5_build_xt5() {
 
     prompt_continue "This will:
 - Build application for XT5 (RK3588)
+- Build application for RK3576
 - Build application for LS5 (RK3568)
 - Install binaries and libraries to install directory"
 
@@ -551,6 +567,17 @@ step5_build_xt5() {
     mkdir -p build_xt5 && cd build_xt5
     
     cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3588"
+    make
+    make install
+    
+    cd "$project_root"
+
+    # Build for RK3576
+    print_status "Building for RK3576..."
+    rm -rf build_rk3576
+    mkdir -p build_rk3576 && cd build_rk3576
+    
+    cmake .. -DOECORE_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT}" -DTARGET_SOC="rk3576"
     make
     make install
     

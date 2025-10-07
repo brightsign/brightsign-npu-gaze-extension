@@ -477,7 +477,7 @@ copy_extension_scripts() {
 
     # Copy main bsext_init script
     cp bsext_init staging/ && chmod +x staging/bsext_init
-
+    
     # Copy uninstall script
     if [[ -f "sh/uninstall.sh" ]]; then
         cp sh/uninstall.sh staging/ && chmod +x staging/uninstall.sh

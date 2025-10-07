@@ -26,6 +26,7 @@ declare -A PLATFORMS=(
     ["XT5"]="rk3588"
     ["LS5"]="rk3568"
     ["Firebird"]="rk3576"
+    ["RK3576"]="rk3576"
 )
 
 # Model configuration
@@ -51,6 +52,7 @@ usage() {
     echo "  $0                      # Compile model for all platforms"
     echo "  $0 XT5                  # Compile model for XT5/RK3588"
     echo "  $0 --clean LS5          # Clean and compile for LS5/RK3568"
+    echo "  $0 RK3576               # Compile model for RK3576"
     echo "  $0 --build-container    # Build Docker container first"
     echo ""
     echo "Prerequisites:"
@@ -62,6 +64,7 @@ usage() {
     echo "  XT5      -> RK3588 (XT1145, XT2145 players)"
     echo "  LS5      -> RK3568 (LS445 players)"
     echo "  Firebird -> RK3576 (development boards)"
+    echo "  RK3576   -> RK3576 (alternative name)"
     echo ""
     echo "The RetinaFace model is used for face detection in gaze analysis."
 }
