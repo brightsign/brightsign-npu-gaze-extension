@@ -117,6 +117,10 @@ registry write extension bsext-gaze-disable-auto-start true
 registry write extension bsext-gaze-video-device usb_camera
 # Example for RTSP stream:
 # registry write extension bsext-gaze-video-device rtsp://192.168.1.100:554/stream
+
+# UDP publish rate
+# If you set this to 1, the extension will publish gaze data over UDP at 1 message per second. If you set other than 1 then it will publish as soon as the inference is ready.
+registry write extension bsext-gaze-udp-publish-rate 1
 ```
 
 ### Extension Control
