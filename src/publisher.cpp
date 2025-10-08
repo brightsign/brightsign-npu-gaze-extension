@@ -62,7 +62,11 @@ void UDPPublisher::operator()() {
         
         sendto(sockfd, message.c_str(), message.length(), 0,
                (struct sockaddr*)&servaddr, sizeof(servaddr));
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000 / target_mps));
+        
+        // Only sleep if target_mps is 1 (send 1 message per second)
+        if(target_mps == 1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+        // For all other values, send messages as they come without delay
     }
 }

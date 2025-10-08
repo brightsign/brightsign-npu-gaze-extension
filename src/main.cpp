@@ -33,6 +33,63 @@ void signalHandler(int signum) {
     resultQueue.signalShutdown();
 }
 
+// Helper to read registry values
+class RegistryHelper {
+private:
+    static const std::string DAEMON_NAME;
+    
+public:
+    static std::string readExtensionValue(const std::string& key) {
+        std::string command = "registry extension " + key;
+        return executeCommand(command);
+    }
+    
+    static std::string getUdpPublishRate() {
+        std::string key = DAEMON_NAME + "-udp-publish-rate";
+        std::string publishRate = readExtensionValue(key);
+        printf("DEBUG: Registry key: '%s'\n", key.c_str());
+        printf("DEBUG: Raw registry result: '%s' (length: %zu)\n", publishRate.c_str(), publishRate.length());
+
+        if (publishRate.empty()) {
+            printf("DEBUG: Registry value is empty, using default '10'\n");
+            publishRate = "10";
+        } else {
+            printf("DEBUG: Using registry value: '%s'\n", publishRate.c_str());
+        }
+        return publishRate;
+    }
+    
+private:
+    static std::string executeCommand(const std::string& command) {
+        
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(
+            popen(command.c_str(), "r"), pclose);
+        
+        if (!pipe) {
+            printf("DEBUG: Failed to open pipe\n");
+            return "";
+        }
+        
+        char buffer[256];
+        std::string result;
+        
+        while (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
+            result += buffer;
+        }
+        
+        // Trim whitespace and newlines
+        result.erase(std::remove_if(result.begin(), result.end(), 
+                    [](unsigned char c) { return std::isspace(c); }), 
+                    result.end());
+        
+        return result;
+    }
+};
+
+// Define the DAEMON_NAME constant (same as in bsext_init script)
+const std::string RegistryHelper::DAEMON_NAME = "bsext-gaze";
+
+
 int main(int argc, char **argv) {
 #ifdef DEBUG
     if (FILE* log_file = fopen("/storage/sd/console.log", "a")) {
@@ -64,10 +121,16 @@ int main(int argc, char **argv) {
     auto json_fmt = std::make_shared<JsonMessageFormatter>();
     auto bs_fmt   = std::make_shared<BSVariableMessageFormatter>();
 
+    std::string udpPublishRate = RegistryHelper::getUdpPublishRate();
+    std::cout << "Udp Publish rate from registry: " << udpPublishRate << std::endl;
+    
+    // Convert string to integer for messages_per_second parameter
+    int messages_per_second = std::stoi(udpPublishRate);
+    
     // Publishers consume resultQueue until app_running==false or queue shutdown.
     std::atomic<bool> pubs_running{true};
-    UDPPublisher json_pub("127.0.0.1", 5002, resultQueue, pubs_running, json_fmt, 10);
-    UDPPublisher bsvar_pub("127.0.0.1", 5000, resultQueue, pubs_running, bs_fmt, 10);
+    UDPPublisher json_pub("127.0.0.1", 5002, resultQueue, pubs_running, json_fmt, messages_per_second);
+    UDPPublisher bsvar_pub("127.0.0.1", 5000, resultQueue, pubs_running, bs_fmt, messages_per_second);
 
     std::thread json_publisherThread(std::ref(json_pub));
     std::thread bsvar_publisherThread(std::ref(bsvar_pub));
