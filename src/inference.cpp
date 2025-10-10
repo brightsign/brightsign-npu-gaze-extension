@@ -1,3 +1,7 @@
+// inference.cpp — robust RTSP/USB capture with auto-recovery (Tapo-friendly)
+// Speed path: NV12 -> NV12(320x320) via RGA -> RGB via RGA -> RKNN
+// Recovery: RTSP bus watcher (ERROR/EOS), starvation watchdog, reacquire loop
+
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +23,8 @@
 
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
+#include <gst/video/video.h>
+#include <gst/video/gstvideometa.h>
 
 #include <rga/rga.h>
 #include <rga/im2d.h>
@@ -29,14 +35,8 @@
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <string.h>
-#include <chrono>
-#include <thread>
-#include <stdio.h>
-#include <dirent.h>
 
-#include <gst/video/video.h>
-#include <gst/video/gstvideometa.h>
+#define DRAW_OVERLAYS 1
 
 // ===============================
 // Config
@@ -60,8 +60,6 @@ static void gst_init_once() {
 // ===============================
 // Minimal GST env wiring
 // ===============================
-static inline bool rdok(const char* p) { return p && access(p, R_OK) == 0; }
-
 static void ensure_gstreamer_runtime() {
     const char* local = "/var/volatile/bsext/ext_npu_gaze/RK3588/lib/gstreamer-1.0";
     const char* sys   = "/usr/lib/gstreamer-1.0";
@@ -79,7 +77,6 @@ static void ensure_gstreamer_runtime() {
     printf("  GST_PLUGIN_SCANNER=%s\n", getenv("GST_PLUGIN_SCANNER"));
     printf("  GST_REGISTRY=%s\n", getenv("GST_REGISTRY"));
 
-    printf("GST_PLUGIN_PATH: %s\n", getenv("GST_PLUGIN_PATH"));
     std::string pp = getenv("GST_PLUGIN_PATH");
     size_t pos = 0;
     while (true) {
@@ -89,299 +86,13 @@ static void ensure_gstreamer_runtime() {
         if (colon == std::string::npos) break;
         pos = colon + 1;
     }
-    printf("GST_PLUGIN_SCANNER: %s (readable)\n", access(getenv("GST_PLUGIN_SCANNER"), R_OK)==0 ? getenv("GST_PLUGIN_SCANNER") : "(unreadable)");
+    printf("GST_PLUGIN_SCANNER: %s (readable)\n",
+           access(getenv("GST_PLUGIN_SCANNER"), R_OK)==0 ? getenv("GST_PLUGIN_SCANNER") : "(unreadable)");
     printf("GStreamer environment validation passed\n");
 }
 
 // ===============================
-// RTSP NV12 helper (appsink) — with small NV12 scratch buffer
-// ===============================
-class RtspNv12Source {
-public:
-    RtspNv12Source() = default;
-    ~RtspNv12Source() { close(); }
-
-    bool open(const std::string& pipeline_str, int first_frame_timeout_ms = 3000) {
-        close();
-        gst_init_once();
-
-        GError* err = nullptr;
-        pipeline_ = gst_parse_launch(pipeline_str.c_str(), &err);
-        if (!pipeline_) {
-            if (err) { fprintf(stderr, "GStreamer parse error: %s\n", err->message); g_error_free(err); }
-            else { fprintf(stderr, "GStreamer parse error (unknown)\n"); }
-            return false;
-        }
-
-        appsink_ = gst_bin_get_by_name(GST_BIN(pipeline_), "mysink");
-        if (!appsink_) {
-            fprintf(stderr, "appsink 'mysink' not found in pipeline\n");
-            close();
-            return false;
-        }
-
-        // Force NV12 on appsink
-        {
-            GstCaps* caps = gst_caps_from_string("video/x-raw,format=NV12");
-            g_object_set(G_OBJECT(appsink_), "caps", caps, "drop", 1, "max-buffers", 1,
-                         "enable-last-sample", FALSE, "sync", FALSE, nullptr);
-            gst_caps_unref(caps);
-        }
-
-        gst_element_set_state(pipeline_, GST_STATE_PLAYING);
-
-        // First frame wait
-        GstSample* sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink_), first_frame_timeout_ms * GST_MSECOND);
-        if (!sample) {
-            printf("First-frame timeout (%d ms)\n", first_frame_timeout_ms);
-            close();
-            return false;
-        }
-        GstCaps* scaps = gst_sample_get_caps(sample);
-        const GstStructure* s = gst_caps_get_structure(scaps, 0);
-        gst_structure_get_int(s, "width", &w_);
-        gst_structure_get_int(s, "height", &h_);
-        gst_sample_unref(sample);
-
-        // allocate small NV12 buffer (contiguous Y then interleaved UV)
-        nv12_small_.resize(NET_W * NET_H * 3 / 2);
-
-        printf("RTSP NV12 appsink opened: %dx%d\n", w_, h_);
-        return true;
-    }
-    
-    bool pull_into_rgb(cv::Mat& rgb_prealloc) {
-    if (!pipeline_ || !appsink_) return false;
-
-    // short, repeated polls—keeps the loop responsive
-    const int per_try_ms = 200;
-    const int tries = 5;
-
-    for (int i = 0; i < tries; ++i) {
-        GstSample* sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink_), per_try_ms * GST_MSECOND);
-        if (!sample) continue;
-
-        GstBuffer* buffer = gst_sample_get_buffer(sample);
-        GstCaps* caps     = gst_sample_get_caps(sample);
-        if (!buffer || !caps) { gst_sample_unref(sample); continue; }
-
-        // Describe format/strides from caps
-        GstVideoInfo vinfo;
-        if (!gst_video_info_from_caps(&vinfo, caps)) {
-            gst_sample_unref(sample);
-            continue;
-        }
-
-        // Map as video frame (gets plane pointers + strides safely)
-        GstVideoFrame vframe;
-        if (!gst_video_frame_map(&vframe, &vinfo, buffer, GST_MAP_READ)) {
-            gst_sample_unref(sample);
-            continue;
-        }
-
-        const int W = GST_VIDEO_INFO_WIDTH(&vinfo);
-        const int H = GST_VIDEO_INFO_HEIGHT(&vinfo);
-
-        // Plane 0: Y
-        uint8_t* y_ptr      = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 0);
-        int      y_stride   = GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 0);
-
-        // Plane 1: interleaved UV (NV12)
-        uint8_t* uv_ptr     = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 1);
-        int      uv_stride  = GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 1);
-
-        // Build OpenCV mats with the CORRECT shapes and strides
-        // Y  = H x W, 1 channel
-        // UV = H/2 x W/2, 2 channels (interleaved)
-        cv::Mat y_plane (H,     W,     CV_8UC1, y_ptr, y_stride);
-        cv::Mat uv_plane(H/2,   W/2,   CV_8UC2, uv_ptr, uv_stride);
-
-        // NV12 -> BGR (full size, correct colors)
-        cv::Mat bgr_full;
-        cv::cvtColorTwoPlane(y_plane, uv_plane, bgr_full, cv::COLOR_YUV2BGR_NV12);
-
-        // Resize to network input and convert to RGB for the model
-        if (rgb_prealloc.empty() || rgb_prealloc.cols != NET_W || rgb_prealloc.rows != NET_H)
-            rgb_prealloc.create(NET_H, NET_W, CV_8UC3);
-
-        cv::Mat bgr_small;
-        cv::resize(bgr_full, bgr_small, cv::Size(NET_W, NET_H), 0, 0, cv::INTER_AREA);
-        cv::cvtColor(bgr_small, rgb_prealloc, cv::COLOR_BGR2RGB);
-
-        gst_video_frame_unmap(&vframe);
-        gst_sample_unref(sample);
-        return true;
-    }
-    return false;
-}
-
-
-    int width()  const { return w_; }
-    int height() const { return h_; }
-
-    void close() {
-        if (pipeline_) {
-            gst_element_set_state(pipeline_, GST_STATE_NULL);
-            gst_object_unref(pipeline_);
-            pipeline_ = nullptr;
-        }
-        if (appsink_) {
-            gst_object_unref(appsink_);
-            appsink_ = nullptr;
-        }
-        nv12_small_.clear();
-        nv12_small_.shrink_to_fit();
-        w_ = h_ = 0;
-    }
-
-private:
-    GstElement* pipeline_ = nullptr;
-    GstElement* appsink_  = nullptr;
-    int w_ = 0, h_ = 0;
-
-    // contiguous NV12 buffer for 320x320
-    std::vector<uint8_t> nv12_small_;
-};
-
-// ===============================
-// Build RTSP pipelines — EXACT shape as working standalone
-// ===============================
-#if 0
-static std::vector<std::string> build_rtsp_nv12_pipelines(const std::string& url) {
-    std::vector<std::string> p;
-
-    auto mk = [&](const std::string& enc){
-        return std::string(
-            "rtspsrc location=") + url +
-            " protocols=tcp latency=150 drop-on-latency=true do-rtsp-keep-alive=true tcp-timeout=3000000000 "
-            "name=src src. ! application/x-rtp,media=video,encoding-name=" + enc + " ! " +
-            (enc == "H265"
-                 ? "rtph265depay ! h265parse disable-passthrough=true ! "
-                 : "rtph264depay ! h264parse config-interval=-1 disable-passthrough=true ! ") +
-            "mppvideodec ! queue max-size-buffers=2 leaky=downstream ! "
-            "appsink name=mysink caps=video/x-raw,format=NV12 drop=1 max-buffers=1 enable-last-sample=false sync=false";
-    };
-
-    p.push_back(mk("H265"));
-    p.push_back(mk("H264"));
-    return p;
-}
-#endif
-
-// Build RTSP NV12 pipelines — MediaMTX-friendly set
-static std::vector<std::string> build_rtsp_nv12_pipelines(const std::string& url) {
-    std::vector<std::string> p;
-
-    auto mk = [&](std::string proto,
-                  bool specify_encoding,
-                  std::string enc /* "H264" or "H265" (ignored if !specify_encoding) */,
-                  bool sw_decode,
-                  bool add_videoconvert_before_sink,
-                  bool use_decodebin) {
-        std::string s = "rtspsrc location=" + url +
-                        " protocols=" + proto +
-                        " latency=150 drop-on-latency=true do-rtsp-keep-alive=true tcp-timeout=3000000000 "
-                        "name=src ";
-
-        if (use_decodebin) {
-            // Very forgiving path; decodebin chooses depay/parse/decoder.
-            // We still end at NV12 for our appsink.
-            s += "! decodebin ! ";
-            if (add_videoconvert_before_sink) s += "videoconvert ! ";
-            s += "video/x-raw,format=NV12 ! "
-                 "queue max-size-buffers=2 leaky=downstream ! "
-                 "appsink name=mysink caps=video/x-raw,format=NV12 drop=1 max-buffers=1 enable-last-sample=false sync=false";
-            return s;
-        }
-
-        // Split pad explicitly (more deterministic than decodebin when it works)
-        s += "src. ! ";
-
-        if (specify_encoding) {
-            s += "application/x-rtp,media=video,encoding-name=" + enc + " ! ";
-            if (enc == "H265") {
-                s += "rtph265depay ! h265parse disable-passthrough=true ! ";
-            } else {
-                s += "rtph264depay ! h264parse config-interval=-1 disable-passthrough=true ! ";
-            }
-        } else {
-            // Let rtspsrc expose caps; add a jitterbuffer to make mpp happier with some servers
-            s += "rtpjitterbuffer drop-on-late=true ! ";
-            // Choose depay later based on enc
-            s += "queue max-size-buffers=4 leaky=downstream ! ";
-            // Try H265 first then H264 via decodebin in fallback below
-            // Here we’ll assume H264; the next pipelines will cover the other case.
-            // (This variant is kept generic—decodebin fallback below is even more tolerant.)
-        }
-
-        if (specify_encoding) {
-            if (sw_decode) {
-                s += (enc == "H265" ? "avdec_hevc ! " : "avdec_h264 ! ");
-                s += "videoconvert ! ";
-            } else {
-                s += "mppvideodec ! ";
-            }
-        } else {
-            // If we didn’t specify encoding, be forgiving and let decodebin pick depay/decoder
-            s += "decodebin ! ";
-        }
-
-        if (add_videoconvert_before_sink) s += "videoconvert ! ";
-        s += "video/x-raw,format=NV12 ! "
-             "queue max-size-buffers=2 leaky=downstream ! "
-             "appsink name=mysink caps=video/x-raw,format=NV12 drop=1 max-buffers=1 enable-last-sample=false sync=false";
-        return s;
-    };
-
-    // --- Fast, strict (matches your camera case) — keep first
-    p.push_back(mk("tcp", /*specify_encoding=*/true,  "H265", /*sw=*/false, /*vcvt=*/false, /*decodebin=*/false));
-    p.push_back(mk("tcp", /*specify_encoding=*/true,  "H264", /*sw=*/false, /*vcvt=*/false, /*decodebin=*/false));
-
-    // --- Looser caps (no encoding-name filter), still TCP
-    p.push_back(mk("tcp", /*specify_encoding=*/false, "H264", /*sw=*/false, /*vcvt=*/false, /*decodebin=*/false));
-
-    // --- UDP variant (some MediaMTX setups prefer UDP)
-    p.push_back(mk("udp", /*specify_encoding=*/true,  "H264", /*sw=*/false, /*vcvt=*/false, /*decodebin=*/false));
-
-    // --- Software decode fallbacks (TCP)
-    p.push_back(mk("tcp", /*specify_encoding=*/true,  "H265", /*sw=*/true,  /*vcvt=*/true,  /*decodebin=*/false));
-    p.push_back(mk("tcp", /*specify_encoding=*/true,  "H264", /*sw=*/true,  /*vcvt=*/true,  /*decodebin=*/false));
-
-    // --- Ultra-forgiving decodebin fallbacks (TCP then UDP)
-    p.push_back(mk("tcp", /*specify_encoding=*/false, "H264", /*sw=*/false, /*vcvt=*/true,  /*decodebin=*/true));
-    p.push_back(mk("udp", /*specify_encoding=*/false, "H264", /*sw=*/false, /*vcvt=*/true,  /*decodebin=*/true));
-
-    return p;
-}
-
-
-// ===============================
-// USB helper
-// ===============================
-static std::string findWorkingCameraDevice() {
-    std::vector<std::string> devices;
-    if (DIR* dir = opendir("/dev")) {
-        if (dirent* e; (e = readdir(dir)) != nullptr) {
-            do {
-                std::string name = e->d_name;
-                if (name.rfind("video", 0) == 0) devices.emplace_back("/dev/" + name);
-            } while ((e = readdir(dir)) != nullptr);
-        }
-        closedir(dir);
-    }
-    std::sort(devices.begin(), devices.end());
-    for (const auto& dev : devices) {
-        if (access(dev.c_str(), R_OK) != 0) continue;
-        cv::VideoCapture cap(dev, cv::CAP_V4L2);
-        if (!cap.isOpened()) continue;
-        cv::Mat f;
-        if (cap.read(f) && !f.empty()) return dev;
-    }
-    return "";
-}
-
-// ===============================
-// Tiny "latest frame" buffer (capacity=1)
+// LatestFrame (capacity=1)
 // ===============================
 class LatestFrame {
 public:
@@ -413,6 +124,411 @@ private:
 };
 
 // ===============================
+// RTSP NV12 helper (appsink) — bus watcher + fast NV12->RGB
+// ===============================
+class RtspNv12Source {
+public:
+    RtspNv12Source() = default;
+    ~RtspNv12Source() { close(); }
+
+    bool open(const std::string& pipeline_str, int first_frame_timeout_ms = 3000) {
+        close();
+        gst_init_once();
+
+        GError* err = nullptr;
+        pipeline_ = gst_parse_launch(pipeline_str.c_str(), &err);
+        if (!pipeline_) {
+            if (err) { fprintf(stderr, "GStreamer parse error: %s\n", err->message); g_error_free(err); }
+            else { fprintf(stderr, "GStreamer parse error (unknown)\n"); }
+            return false;
+        }
+
+        appsink_ = gst_bin_get_by_name(GST_BIN(pipeline_), "mysink");
+        if (!appsink_) {
+            fprintf(stderr, "appsink 'mysink' not found in pipeline\n");
+            close();
+            return false;
+        }
+
+        // Force NV12 **and** 320x320 on appsink to push scaling upstream
+        // Force NV12 at appsink, but DO NOT fixate width/height (lets Tapo negotiate).
+        // inside RtspNv12Source::open(), after you get appsink_
+        {
+            GstCaps* caps = gst_caps_from_string("video/x-raw,format=NV12");
+            g_object_set(G_OBJECT(appsink_),
+                        "caps", caps,
+                        "drop", 1,
+                        "max-buffers", 1,
+                        "enable-last-sample", FALSE,
+                        "sync", FALSE,
+                        nullptr);
+            gst_caps_unref(caps);
+        }
+
+
+        // Bus watcher (ERROR/EOS) -> mark broken_
+        bus_ = gst_element_get_bus(pipeline_);
+        broken_.store(false, std::memory_order_release);
+        bus_running_.store(true, std::memory_order_release);
+        bus_thread_ = std::thread([this]{
+            while (bus_running_.load(std::memory_order_acquire)) {
+                GstMessage* msg = gst_bus_timed_pop_filtered(
+                    bus_, 300 * GST_MSECOND,
+                    (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_EOS | GST_MESSAGE_WARNING));
+                if (!msg) continue;
+
+                switch (GST_MESSAGE_TYPE(msg)) {
+                    case GST_MESSAGE_ERROR: {
+                        GError* e=nullptr; gchar* dbg=nullptr;
+                        gst_message_parse_error(msg, &e, &dbg);
+                        fprintf(stderr, "[GST-ERROR] %s: %s\n",
+                                msg->src ? GST_OBJECT_NAME(msg->src) : "pipeline",
+                                e ? e->message : "(unknown)");
+                        if (dbg) g_free(dbg);
+                        if (e) g_error_free(e);
+                        broken_.store(true, std::memory_order_release);
+                        break;
+                    }
+                    case GST_MESSAGE_EOS:
+                        fprintf(stderr, "[GST] EOS received\n");
+                        broken_.store(true, std::memory_order_release);
+                        break;
+                    case GST_MESSAGE_WARNING: {
+                        GError* e=nullptr; gchar* dbg=nullptr;
+                        gst_message_parse_warning(msg, &e, &dbg);
+                        fprintf(stderr, "[GST-WARN] %s: %s\n",
+                                msg->src ? GST_OBJECT_NAME(msg->src) : "pipeline",
+                                e ? e->message : "(unknown)");
+                        if (dbg) g_free(dbg);
+                        if (e) g_error_free(e);
+                        break;
+                    }
+                    default: break;
+                }
+                gst_message_unref(msg);
+            }
+        });
+
+        gst_element_set_state(pipeline_, GST_STATE_PLAYING);
+
+        // First frame wait (prove-flow)
+        GstSample* sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink_), first_frame_timeout_ms * GST_MSECOND);
+        if (!sample) {
+            printf("First-frame timeout (%d ms)\n", first_frame_timeout_ms);
+            close();
+            return false;
+        }
+        GstCaps* scaps = gst_sample_get_caps(sample);
+        const GstStructure* s = gst_caps_get_structure(scaps, 0);
+        gst_structure_get_int(s, "width", &w_);
+        gst_structure_get_int(s, "height", &h_);
+        gst_sample_unref(sample);
+
+        // Pre-alloc small NV12 scratch
+        nv12_small_.assign(NET_W * NET_H * 3 / 2, 0);
+
+        printf("RTSP NV12 appsink opened: %dx%d\n", w_, h_);
+        if (w_ != 320 || h_ != 320) {
+            printf("WARNING: upstream did not scale to 320x320; capture+convert will be slow\n");
+        }
+        return true;
+    }
+
+    // NV12(strided) -> NV12(320x320, contiguous) [RGA] -> RGB(320x320) [RGA]
+    bool pull_into_rgb(cv::Mat& rgb_prealloc) {
+        if (!pipeline_ || !appsink_) return false;
+        if (broken_.load(std::memory_order_acquire)) return false;
+
+        const int per_try_ms = 200, tries = 5;
+        if (rgb_prealloc.empty() || rgb_prealloc.cols != NET_W || rgb_prealloc.rows != NET_H)
+            rgb_prealloc.create(NET_H, NET_W, CV_8UC3);
+
+        for (int i = 0; i < tries; ++i) {
+            GstSample* sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink_), per_try_ms * GST_MSECOND);
+            if (!sample) continue;
+
+            GstBuffer* buffer = gst_sample_get_buffer(sample);
+            GstCaps*   caps   = gst_sample_get_caps(sample);
+            if (!buffer || !caps) { gst_sample_unref(sample); continue; }
+
+            GstVideoInfo vinfo;
+            if (!gst_video_info_from_caps(&vinfo, caps)) { gst_sample_unref(sample); continue; }
+
+            GstVideoFrame vframe;
+            if (!gst_video_frame_map(&vframe, &vinfo, buffer, GST_MAP_READ)) { gst_sample_unref(sample); continue; }
+
+            const int W = GST_VIDEO_INFO_WIDTH(&vinfo);
+            const int H = GST_VIDEO_INFO_HEIGHT(&vinfo);
+
+            uint8_t* y_ptr     = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 0);
+            int      y_stride  = (int)GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 0);
+            uint8_t* uv_ptr    = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 1);
+            int      uv_stride = (int)GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 1);
+
+            // Try to treat input as contiguous NV12; if not, pack it.
+            static std::vector<uint8_t> nv12_full;
+            bool stride_ok = (y_stride == W) && (uv_stride == W);
+            bool contiguous = stride_ok && (uv_ptr == y_ptr + (size_t)y_stride * H);
+
+            const uint8_t* src_base = nullptr;
+            if (contiguous) {
+                src_base = y_ptr;
+            } else {
+                nv12_full.resize(W*H*3/2);
+                // pack Y
+                for (int r=0; r<H; ++r)
+                    memcpy(&nv12_full[r*W], y_ptr + r*y_stride, W);
+                // pack UV
+                uint8_t* uv_dst = nv12_full.data() + W*H;
+                for (int r=0; r<H/2; ++r)
+                    memcpy(uv_dst + r*W, uv_ptr + r*uv_stride, W);
+                src_base = nv12_full.data();
+            }
+
+            bool ok = false;
+            do {
+                // NV12 (W×H) -> NV12 (320×320)
+                rga_buffer_t src_nv12       = wrapbuffer_virtualaddr((void*)src_base, W, H, RK_FORMAT_YCbCr_420_SP);
+                rga_buffer_t dst_nv12_small = wrapbuffer_virtualaddr(nv12_small_.data(), NET_W, NET_H, RK_FORMAT_YCbCr_420_SP);
+                double fx = (double)NET_W / (double)W;
+                double fy = (double)NET_H / (double)H;
+                int ret = imresize(src_nv12, dst_nv12_small, fx, fy, 0, IM_SYNC);
+                if (ret != IM_STATUS_SUCCESS) break;
+
+                // NV12 (320×320) -> RGB (320×320)
+                rga_buffer_t src_small = wrapbuffer_virtualaddr(nv12_small_.data(), NET_W, NET_H, RK_FORMAT_YCbCr_420_SP);
+                rga_buffer_t dst_rgb   = wrapbuffer_virtualaddr(rgb_prealloc.data, NET_W, NET_H, RK_FORMAT_RGB_888);
+                ret = imcvtcolor(src_small, dst_rgb, RK_FORMAT_YCbCr_420_SP, RK_FORMAT_RGB_888, IM_SYNC);
+                if (ret != IM_STATUS_SUCCESS) break;
+
+                ok = true;
+            } while(false);
+
+            if (!ok) {
+                // CPU fallback (rare)
+                cv::Mat yplane(H, W, CV_8UC1, (void*)y_ptr,  y_stride);
+                cv::Mat uvplane(H/2, W/2, CV_8UC2, (void*)uv_ptr, uv_stride);
+                cv::Mat bgr_full, bgr_small;
+                cv::cvtColorTwoPlane(yplane, uvplane, bgr_full, cv::COLOR_YUV2BGR_NV12);
+                cv::resize(bgr_full, bgr_small, cv::Size(NET_W, NET_H), 0, 0, cv::INTER_AREA);
+                cv::cvtColor(bgr_small, rgb_prealloc, cv::COLOR_BGR2RGB);
+            }
+
+            gst_video_frame_unmap(&vframe);
+            gst_sample_unref(sample);
+            return true;
+        }
+        return false;
+    }
+
+    bool broken() const { return broken_.load(std::memory_order_acquire); }
+    int  width()  const { return w_; }
+    int  height() const { return h_; }
+
+    void close() {
+        bus_running_.store(false, std::memory_order_release);
+        if (bus_thread_.joinable()) bus_thread_.join();
+
+        if (pipeline_) { gst_element_set_state(pipeline_, GST_STATE_NULL); gst_object_unref(pipeline_); pipeline_ = nullptr; }
+        if (appsink_)  { gst_object_unref(appsink_); appsink_ = nullptr; }
+        if (bus_)      { gst_object_unref(bus_); bus_ = nullptr; }
+
+        w_ = h_ = 0;
+        nv12_small_.clear(); nv12_small_.shrink_to_fit();
+        broken_.store(false, std::memory_order_release);
+    }
+
+private:
+    GstElement* pipeline_ = nullptr;
+    GstElement* appsink_  = nullptr;
+    GstBus*     bus_      = nullptr;
+
+    int w_ = 0, h_ = 0;
+
+    std::vector<uint8_t> nv12_small_;
+
+    std::thread bus_thread_;
+    std::atomic<bool> bus_running_{false};
+    std::atomic<bool> broken_{false};
+};
+
+// ===============================
+// RTSP pipelines — Tapo/MediaMTX friendly
+//   - prefer UDP/H264 first
+//   - keep-alives + timeouts
+//   - rkvideoscale to NV12 320x320 before appsink (fast path)
+//   - jitterbuffer variant to tame jittery streams
+// ===============================
+// Prefer 320x320 scaling before appsink, but appsink itself is lax (NV12 only).
+// Try Tapo substream (/stream2) first for lower resolution.
+// Keep appsink caps NV12 only; let upstream negotiate size.
+static std::vector<std::string> build_rtsp_nv12_pipelines(const std::string& url_in) {
+    auto make_url_variants = [&](const std::string& u) {
+        std::vector<std::string> urls;
+        urls.push_back(u); // original
+
+        // Heuristic: if url has /stream1, add /stream2 first in priority.
+        // (Typical for many Tapo firmwares.)
+        try {
+            auto pos = u.rfind("/stream1");
+            if (pos != std::string::npos) {
+                std::string u2 = u;
+                u2.replace(pos, 8, "/stream2");
+                // Put /stream2 first
+                urls.insert(urls.begin(), u2);
+            }
+        } catch (...) {}
+        return urls;
+    };
+
+    auto mk = [&](const std::string& url,
+                  const char* proto,        // "udp" or "tcp"
+                  const char* enc,          // "H264"/"H265" or nullptr for decodebin
+                  bool use_decodebin,
+                  bool hw_decode,           // true => mppvideodec, false => software decode
+                  bool scaled_320,          // try to scale to 320x320 upstream
+                  bool use_hw_scale) {      // rkvideoscale vs videoscale
+        std::string s =
+            "rtspsrc location=" + url +
+            " protocols=" + proto +
+            " latency=150 drop-on-latency=true do-rtsp-keep-alive=true "
+            " tcp-timeout=5000000000 timeout=7000000000 "
+            " name=src ";
+
+        s += "src. ! ";
+
+        if (use_decodebin) {
+            s += "decodebin ! ";
+        } else if (enc) {
+            s += std::string("application/x-rtp,media=video,encoding-name=") + enc + " ! ";
+            if (std::string(enc) == "H265") {
+                s += "rtph265depay ! h265parse disable-passthrough=true ! ";
+            } else {
+                // config-interval=1 keeps SPS/PPS flowing (helps with some Tapo firmware)
+                s += "rtph264depay ! h264parse config-interval=1 disable-passthrough=true ! ";
+            }
+            if (hw_decode) {
+                s += "mppvideodec ! ";
+            } else {
+                s += (std::string(enc) == "H265" ? "avdec_hevc ! " : "avdec_h264 ! ");
+                s += "videoconvert ! ";
+            }
+        } else {
+            s += "decodebin ! ";
+        }
+
+        if (scaled_320) {
+            if (use_hw_scale) s += "rkvideoscale ! ";
+            else              s += "videoscale ! ";
+            s += "video/x-raw,format=NV12,width=320,height=320 ! ";
+        }
+
+        // Always fixate NV12 before appsink; appsink itself is NV12-only (no size).
+        s += "video/x-raw,format=NV12 ! "
+             "queue max-size-buffers=2 leaky=downstream ! "
+             "appsink name=mysink caps=video/x-raw,format=NV12 "
+             "drop=1 max-buffers=1 enable-last-sample=false sync=false";
+        return s;
+    };
+
+    std::vector<std::string> p;
+    auto urls = make_url_variants(url_in);
+
+    // Build in priority order:
+    for (const auto& url : urls) {
+        // 1) H264, HW decode, NO scaling (fast, most compatible)
+        p.push_back(mk(url, "udp", "H264", /*decodebin=*/false, /*hw_decode=*/true,  /*scaled_320=*/false, /*hw_scale=*/false));
+        p.push_back(mk(url, "tcp", "H264", /*decodebin=*/false, /*hw_decode=*/true,  /*scaled_320=*/false, /*hw_scale=*/false));
+
+        // 2) Try to scale upstream to 320×320 (nice-to-have, may fail to negotiate)
+        p.push_back(mk(url, "udp", "H264", /*decodebin=*/false, /*hw_decode=*/true,  /*scaled_320=*/true,  /*hw_scale=*/true));
+        p.push_back(mk(url, "tcp", "H264", /*decodebin=*/false, /*hw_decode=*/true,  /*scaled_320=*/true,  /*hw_scale=*/true));
+        p.push_back(mk(url, "udp",  nullptr,/*decodebin=*/true,  /*hw_decode=*/true,  /*scaled_320=*/true,  /*hw_scale=*/true));
+        p.push_back(mk(url, "tcp",  nullptr,/*decodebin=*/true,  /*hw_decode=*/true,  /*scaled_320=*/true,  /*hw_scale=*/true));
+
+        // 3) Software decode fallback (rarely needed; still keep a couple)
+        p.push_back(mk(url, "tcp", "H264", /*decodebin=*/false, /*hw_decode=*/false, /*scaled_320=*/false, /*hw_scale=*/false));
+        p.push_back(mk(url, "tcp", "H264", /*decodebin=*/false, /*hw_decode=*/false, /*scaled_320=*/true,  /*hw_scale=*/false));
+
+        // 4) H265 just in case the profile is H265
+        p.push_back(mk(url, "tcp", "H265", /*decodebin=*/false, /*hw_decode=*/true,  /*scaled_320=*/false, /*hw_scale=*/false));
+        p.push_back(mk(url, "tcp", "H265", /*decodebin=*/false, /*hw_decode=*/true,  /*scaled_320=*/true,  /*hw_scale=*/true));
+    }
+
+    return p;
+}
+
+
+// ===============================
+// USB helper
+// ===============================
+static std::string findWorkingCameraDevice() {
+    std::vector<std::string> devices;
+    if (DIR* dir = opendir("/dev")) {
+        if (dirent* e; (e = readdir(dir)) != nullptr) {
+            do {
+                std::string name = e->d_name;
+                if (name.rfind("video", 0) == 0) devices.emplace_back("/dev/" + name);
+            } while ((e = readdir(dir)) != nullptr);
+        }
+        closedir(dir);
+    }
+    std::sort(devices.begin(), devices.end());
+    for (const auto& dev : devices) {
+        if (access(dev.c_str(), R_OK) != 0) continue;
+        cv::VideoCapture cap(dev, cv::CAP_V4L2);
+        if (!cap.isOpened()) continue;
+        cv::Mat f;
+        if (cap.read(f) && !f.empty()) return dev;
+    }
+    return "";
+}
+
+// ===============================
+// Network wait helpers
+// ===============================
+static bool any_interface_has_ip(std::string &iface_out, std::string &ip_out) {
+    struct ifaddrs *ifaddr, *ifa;
+    if (getifaddrs(&ifaddr) == -1) return false;
+    bool found = false;
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr) continue;
+        if (ifa->ifa_addr->sa_family == AF_INET) {
+            if (strcmp(ifa->ifa_name, "lo") == 0) continue;
+            struct sockaddr_in *sa = (struct sockaddr_in*)ifa->ifa_addr;
+            char ip[INET_ADDRSTRLEN];
+            if (inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip))) {
+                if (strcmp(ip, "0.0.0.0") != 0) {
+                    iface_out = ifa->ifa_name;
+                    ip_out    = ip;
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+    return found;
+}
+
+static void wait_for_network_with_validation(int retries = 30, int delay_sec = 2) {
+    printf("Waiting for network connectivity...\n");
+    for (int i = 0; i < retries; i++) {
+        std::string iface, ip;
+        if (any_interface_has_ip(iface, ip)) {
+            printf("Network interface %s has IP %s\n", iface.c_str(), ip.c_str());
+            printf("Testing external connectivity...\n");
+            int ping_result = system("ping -c 1 -W 3 8.8.8.8 >/dev/null ^&^& echo 0 || echo 1 >/dev/null 2>&1");
+            (void)ping_result; // local network is enough for RTSP
+            return;
+        }
+        printf("Waiting for network (attempt %d/%d)...\n", i+1, retries);
+        std::this_thread::sleep_for(std::chrono::seconds(delay_sec));
+    }
+    printf("ERROR: No network interface got an IP after %d attempts\n", retries);
+}
+
+// ===============================
 // Inference glue — RGB in
 // ===============================
 static void mat_to_image_buffer_rgb(cv::Mat& rgb, image_buffer_t* image) {
@@ -442,6 +558,7 @@ InferenceResult MLInferenceThread::runInference(cv::Mat& rgb) {
     final_result.count_all_faces_in_frame = result.count;
     final_result.num_faces_attending = 0;
 
+#if DRAW_OVERLAYS
     for (int i = 0; i < result.count; i++) {
         cv::Scalar color(255, 0, 0);
         if (face_is_looking_at_us(result.object[i])) {
@@ -458,70 +575,14 @@ InferenceResult MLInferenceThread::runInference(cv::Mat& rgb) {
         auto box = result.object[i].box;
         cv::rectangle(rgb, cv::Point(box.left, box.top), cv::Point(box.right, box.bottom), color, 2);
     }
-
+#endif
     frames++;
     return final_result;
 }
 
-static bool any_interface_has_ip(std::string &iface_out, std::string &ip_out) {
-    struct ifaddrs *ifaddr, *ifa;
-    if (getifaddrs(&ifaddr) == -1) return false;
-
-    bool found = false;
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr) continue;
-
-        // Only care about IPv4
-        if (ifa->ifa_addr->sa_family == AF_INET) {
-            // Skip loopback
-            if (strcmp(ifa->ifa_name, "lo") == 0) continue;
-
-            struct sockaddr_in *sa = (struct sockaddr_in*)ifa->ifa_addr;
-            char ip[INET_ADDRSTRLEN];
-            if (inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip))) {
-                if (strcmp(ip, "0.0.0.0") != 0) {
-                    iface_out = ifa->ifa_name;
-                    ip_out    = ip;
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-    freeifaddrs(ifaddr);
-    return found;
-}
-
-static void wait_for_network_with_validation(int retries = 30, int delay_sec = 2) {
-    printf("Waiting for network connectivity...\n");
-    
-    for (int i = 0; i < retries; i++) {
-        std::string iface, ip;
-        if (any_interface_has_ip(iface, ip)) {
-            printf("Network interface %s has IP %s\n", iface.c_str(), ip.c_str());
-            printf("Testing external connectivity...\n");
-            int ping_result = system("ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1");
-            if (ping_result == 0) {
-                printf("External connectivity confirmed\n");
-                return;
-            } else {
-                printf("External connectivity test failed, but local network is up\n");
-                return;
-            }
-        }
-        printf("Waiting for network (attempt %d/%d)...\n", i+1, retries);
-        std::this_thread::sleep_for(std::chrono::seconds(delay_sec));
-    }
-    printf("ERROR: No network interface got an IP after %d attempts\n", retries);
-}
-
-MLInferenceThread::~MLInferenceThread() {
-    release_retinaface_model(&rknn_app_ctx);
-    running = false;
-    resultQueue.signalShutdown();
-}
-
-
+// ===============================
+// MLInferenceThread — ctor / dtor
+// ===============================
 MLInferenceThread::MLInferenceThread(
     const char* model_path,
     const char* input_source,
@@ -544,127 +605,124 @@ MLInferenceThread::MLInferenceThread(
     printf("DEBUG: OpenCV version: %s\n", cv::getVersionString().c_str());
     video_source = input_source;
 
-    // Only wait for network when an RTSP URL is requested
     if (strstr(input_source, "rtsp://") || strstr(input_source, "rtsps://")) {
         printf("Waiting for network before opening RTSP...\n");
         wait_for_network_with_validation();
     }
 
-    // Acquisition (RTSP/USB) is handled by acquireSourceLoop() called from operator().
-    // This prevents the thread from exiting when sources are absent at startup.
     printf("Constructor complete — capture will be acquired in operator() via acquireSourceLoop().\n");
 }
 
+MLInferenceThread::~MLInferenceThread() {
+    release_retinaface_model(&rknn_app_ctx);
+    running = false;
+    resultQueue.signalShutdown();
+}
 
 // ===============================
 // Producer thread (capture + convert)
 // ===============================
 void MLInferenceThread::producerLoop() {
     using clock = std::chrono::steady_clock;
-
-    int consecutive_fail = 0;
     auto last_ok = clock::now();
+    int empty_pulls = 0;
 
     while (running) {
         auto start = clock::now();
         bool ok = false;
 
         if (using_rtsp) {
-            ok = rtsp->pull_into_rgb(prod_rgb);  // returns quickly if no sample
+            ok = rtsp && rtsp->pull_into_rgb(prod_rgb);
+            if (!ok) {
+                if (!rtsp || rtsp->broken()) {
+                    fprintf(stderr, "RTSP marked broken by bus; exiting producer\n");
+                    source_broken.store(true, std::memory_order_release);
+                    break;
+                }
+                if (++empty_pulls >= 20) { // ~4s of appsink starvation
+                    fprintf(stderr, "RTSP: appsink starved; marking broken\n");
+                    source_broken.store(true, std::memory_order_release);
+                    break;
+                }
+            } else {
+                empty_pulls = 0;
+            }
         } else {
             cv::Mat frame_bgr;
-            if (capture.isOpened()) {
-                ok = capture.read(frame_bgr) && !frame_bgr.empty();
-            } else {
-                ok = false;
-            }
+            ok = capture.isOpened() && capture.read(frame_bgr) && !frame_bgr.empty();
 
             if (ok) {
-                // BGR->RGB, resize to NET_W x NET_H (RGA preferred)
+                // BGR->RGB then resize (RGA preferred)
                 cv::Mat rgb_full(frame_bgr.rows, frame_bgr.cols, CV_8UC3);
                 rga_buffer_t src_bgr = wrapbuffer_virtualaddr(frame_bgr.data, frame_bgr.cols, frame_bgr.rows, RK_FORMAT_BGR_888);
                 rga_buffer_t dst_rgb = wrapbuffer_virtualaddr(rgb_full.data,  rgb_full.cols,  rgb_full.rows,  RK_FORMAT_RGB_888);
-                int ret = imcvtcolor(src_bgr, dst_rgb, RK_FORMAT_BGR_888, RK_FORMAT_RGB_888, IM_SYNC);
-                if (ret != IM_STATUS_SUCCESS) {
+                int r = imcvtcolor(src_bgr, dst_rgb, RK_FORMAT_BGR_888, RK_FORMAT_RGB_888, IM_SYNC);
+                if (r != IM_STATUS_SUCCESS) {
                     cv::cvtColor(frame_bgr, rgb_full, cv::COLOR_BGR2RGB);
                 }
-                rga_buffer_t src_rgb      = wrapbuffer_virtualaddr(rgb_full.data, rgb_full.cols, rgb_full.rows, RK_FORMAT_RGB_888);
+                rga_buffer_t src_rgb       = wrapbuffer_virtualaddr(rgb_full.data, rgb_full.cols, rgb_full.rows, RK_FORMAT_RGB_888);
                 rga_buffer_t dst_rgb_small = wrapbuffer_virtualaddr(prod_rgb.data,  prod_rgb.cols,  prod_rgb.rows,  RK_FORMAT_RGB_888);
                 double fx = (double)prod_rgb.cols / rgb_full.cols;
                 double fy = (double)prod_rgb.rows / rgb_full.rows;
-                ret = imresize(src_rgb, dst_rgb_small, fx, fy, 0, IM_SYNC);
-                if (ret != IM_STATUS_SUCCESS) {
+                r = imresize(src_rgb, dst_rgb_small, fx, fy, 0, IM_SYNC);
+                if (r != IM_STATUS_SUCCESS) {
                     cv::resize(rgb_full, prod_rgb, prod_rgb.size(), 0, 0, cv::INTER_AREA);
+                }
+            } else {
+                if (!using_rtsp && !usb_dev_path.empty() && access(usb_dev_path.c_str(), F_OK) != 0) {
+                    fprintf(stderr, "USB device disappeared: %s\n", usb_dev_path.c_str());
+                    source_broken.store(true, std::memory_order_release);
+                    break;
                 }
             }
         }
 
         if (ok) {
-            consecutive_fail = 0;
             last_ok = clock::now();
+            if (!latest) latest = std::make_unique<LatestFrame>();
             latest->set(prod_rgb);
         } else {
-            consecutive_fail++;
-
-            // USB unplug detection: the /dev node disappears
-            if (!using_rtsp && !usb_dev_path.empty() && access(usb_dev_path.c_str(), F_OK) != 0) {
-                printf("USB device disappeared: %s\n", usb_dev_path.c_str());
-                source_broken.store(true, std::memory_order_release);
-                break; // exit producer
-            }
-
-            // Stalled source (no frames for >3s)
             if (std::chrono::duration_cast<std::chrono::seconds>(clock::now() - last_ok).count() >= 3) {
-                printf("Source stalled for >3s; marking broken\n");
+                fprintf(stderr, "Source stalled for >3s; marking broken\n");
                 source_broken.store(true, std::memory_order_release);
-                break; // exit producer
+                break;
             }
-
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
 
         auto end = clock::now();
-        capture_convert_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count(),
-                                     std::memory_order_relaxed);
+        capture_convert_ns.fetch_add(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count(),
+            std::memory_order_relaxed);
     }
 
-    // Clean up capture if USB path
     if (!using_rtsp && capture.isOpened()) {
         capture.release();
     }
 }
 
-// Add to MLInferenceThread class (private):
+// ===============================
+// Acquire (RTSP/USB) with backoff
+// ===============================
 bool MLInferenceThread::acquireSourceLoop(int backoff_ms, int backoff_max_ms) {
     using namespace std::chrono;
 
     auto open_usb = [&]() -> bool {
-        // Reuse last known device if we have it; otherwise probe
         std::string dev = usb_dev_path;
-        if (dev.empty() || access(dev.c_str(), R_OK) != 0) {
-            dev = findWorkingCameraDevice();
-        }
-        if (dev.empty()) {
-            printf("No working USB camera found!\n");
-            return false;
-        }
+        if (dev.empty() || access(dev.c_str(), R_OK) != 0) dev = findWorkingCameraDevice();
+        if (dev.empty()) { printf("No working USB camera found!\n"); return false; }
 
         printf("Detected USB camera device: %s\n", dev.c_str());
         usb_dev_path = dev;
 
         cv::VideoCapture tmp(dev, cv::CAP_V4L2);
-        if (!tmp.isOpened()) {
-            printf("V4L2 backend failed for device: %s\n", dev.c_str());
-            return false;
-        }
+        if (!tmp.isOpened()) { printf("V4L2 backend failed for device: %s\n", dev.c_str()); return false; }
 
-        // Try to guide the camera into a sane mode
         tmp.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
         tmp.set(cv::CAP_PROP_FRAME_WIDTH,  1280);
         tmp.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
         tmp.set(cv::CAP_PROP_FPS, 30);
 
-        // Swap into our member
         capture.release();
         capture = std::move(tmp);
         using_rtsp = false;
@@ -677,7 +735,6 @@ bool MLInferenceThread::acquireSourceLoop(int backoff_ms, int backoff_max_ms) {
     while (running) {
         bool opened = false;
 
-        // If RTSP was requested, try RTSP first
         if (!video_source.empty() &&
             (video_source.rfind("rtsp://",0)==0 || video_source.rfind("rtsps://",0)==0)) {
 
@@ -688,7 +745,7 @@ bool MLInferenceThread::acquireSourceLoop(int backoff_ms, int backoff_max_ms) {
             for (size_t i = 0; i < pipelines.size() && running; ++i) {
                 printf("Trying pipeline %zu/%zu:\n%s\n", i+1, pipelines.size(), pipelines[i].c_str());
                 std::unique_ptr<RtspNv12Source> tmp(new RtspNv12Source());
-                if (tmp->open(pipelines[i], 3000)) {  // 3s like standalone
+                if (tmp->open(pipelines[i], 8000)) {
                     rtsp = std::move(tmp);
                     using_rtsp = true;
                     opened = true;
@@ -703,34 +760,31 @@ bool MLInferenceThread::acquireSourceLoop(int backoff_ms, int backoff_max_ms) {
                 opened = open_usb();
             }
         } else {
-            // Non-RTSP token → try USB directly
             opened = open_usb();
         }
 
         if (opened) {
-            // Preallocate producer/consumer buffers (only once per open)
             if (!latest) latest = std::make_unique<LatestFrame>();
             latest->prealloc(NET_W, NET_H);
-            if (prod_rgb.empty()) {
-                prod_rgb.create(NET_H, NET_W, CV_8UC3);
-            }
+            if (prod_rgb.empty()) prod_rgb.create(NET_H, NET_W, CV_8UC3);
             prod_rgb.setTo(cv::Scalar(0,0,0));
+            source_broken.store(false, std::memory_order_release);
             printf("Capture opened successfully\n");
             return true;
         }
 
-        // Nothing available → idle + exponential backoff
         printf("No source available (RTSP/USB). Retrying in %d ms...\n", delay_ms);
-        for (int t=0; t<delay_ms && running; t+=200) {
+        for (int t=0; t<delay_ms && running; t+=200)
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        }
         delay_ms = std::min(delay_ms * 2, backoff_max_ms);
     }
     return false;
 }
 
+// ===============================
+// Main loop — Consumer (inference)
+// ===============================
 void MLInferenceThread::operator()() {
-    // Try to acquire a source (blocks with backoff until success or running==false)
     if (!acquireSourceLoop(/*backoff_ms=*/500, /*backoff_max_ms=*/5000)) {
         printf("MLInferenceThread main loop exited (no source and stopping)\n");
         return;
@@ -741,40 +795,37 @@ void MLInferenceThread::operator()() {
         producer = std::thread(&MLInferenceThread::producerLoop, this);
 
     auto last_fps_time = std::chrono::steady_clock::now();
-    
+    int frame_count = 0;
+
     printf("MLInferenceThread main loop starting\n");
 
     while (running) {
         cv::Mat rgb;
-        // Wait for a produced frame; if none for a while, check health and reacquire.
-        if (!latest->get(rgb, /*wait_ms=*/300)) {
-            // If producer likely died (e.g., unplugged USB or RTSP dropped)
+        if (!latest || !latest->get(rgb, /*wait_ms=*/300)) {
             bool need_reacquire = false;
+
             if (using_rtsp) {
-                // If RTSP appsink starved repeatedly, producerLoop will stall → reacquire
-                need_reacquire = true;
+                if (!rtsp || rtsp->broken() || source_broken.load(std::memory_order_acquire))
+                    need_reacquire = true;
             } else {
-                // For USB, if capture is closed, we must reacquire
-                if (!capture.isOpened()) need_reacquire = true;
+                if (!capture.isOpened() || source_broken.load(std::memory_order_acquire))
+                    need_reacquire = true;
             }
 
             if (need_reacquire) {
                 if (producer.joinable()) producer.join();
-                // Tear down existing
                 capture.release();
                 rtsp.reset();
+                source_broken.store(false, std::memory_order_release);
 
-                // Block until new source appears (or we’re stopping)
                 if (!acquireSourceLoop(/*backoff_ms=*/500, /*backoff_max_ms=*/5000)) break;
 
-                // Relaunch producer
                 if (using_rtsp || capture.isOpened())
                     producer = std::thread(&MLInferenceThread::producerLoop, this);
             }
             continue;
         }
 
-        // Inference
         auto t0 = std::chrono::steady_clock::now();
         InferenceResult result = runInference(rgb);
         auto t1 = std::chrono::steady_clock::now();
@@ -782,11 +833,11 @@ void MLInferenceThread::operator()() {
                            std::memory_order_relaxed);
         resultQueue.push(std::move(result));
 
-        // Optional throttle
         if (target_fps > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1000 / target_fps));
         }
 
+        // Debug save (BGR)
         try {
             cv::Mat dbg_bgr;
             cv::cvtColor(rgb, dbg_bgr, cv::COLOR_RGB2BGR);
@@ -795,20 +846,18 @@ void MLInferenceThread::operator()() {
         } catch (...) {}
 
         #if DEBUG_FPS
-        int frame_count = 0;
-        // Periodic perf print
         frame_count++;
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - last_fps_time).count() >= 5) {
             double secs = std::chrono::duration<double>(now - last_fps_time).count();
             long long cap_ns = capture_convert_ns.exchange(0, std::memory_order_relaxed);
             long long inf_ns = infer_ns.exchange(0, std::memory_order_relaxed);
-            double fps = frame_count / secs;
+            double fps    = frame_count / secs;
             double cap_ms = (frame_count ? (cap_ns/1e6)/frame_count : 0.0);
             double inf_ms = (frame_count ? (inf_ns/1e6)/frame_count : 0.0);
 
             printf("Performance: %.1f FPS | Frame %dx%d | avg capture+convert: %.2f ms | avg inference: %.2f ms\n",
-                   NET_W==0?0:fps, NET_W, NET_H, cap_ms, inf_ms);
+                   fps, NET_W, NET_H, cap_ms, inf_ms);
 
             frame_count = 0;
             last_fps_time = now;
