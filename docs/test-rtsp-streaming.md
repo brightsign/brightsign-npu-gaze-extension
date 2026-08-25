@@ -30,7 +30,7 @@ In our pipeline on BrightSign device, we use GStreamer to pull NV12 frames from 
 # versioned, e.g. mediamtx_v1.13.1_linux_amd64.tar.gz):
 #   https://github.com/bluenviron/mediamtx/releases/latest
 curl -L -o mediamtx.tgz "$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest \
-  | grep -o 'https://[^"]*linux_amd64.tar.gz' | head -1)"
+  | grep -oE 'https://github.com/bluenviron/mediamtx/releases/download/[^"]*linux_amd64\.tar\.gz' | head -1)"
 tar xzf mediamtx.tgz
 ./mediamtx
 ```
