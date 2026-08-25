@@ -25,8 +25,12 @@ In our pipeline on BrightSign device, we use GStreamer to pull NV12 frames from 
 ### 2.1 Install MediaMTX on your Ubuntu machine
 
 ```bash
-# Linux x64 example
-curl -L https://github.com/bluenviron/mediamtx/releases/latest/download/mediamtx_linux_amd64.tar.gz -o mediamtx.tgz
+# Linux x64 example.
+# Grab the latest linux_amd64 tarball from the releases page (asset names are
+# versioned, e.g. mediamtx_v1.13.1_linux_amd64.tar.gz):
+#   https://github.com/bluenviron/mediamtx/releases/latest
+curl -L -o mediamtx.tgz "$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest \
+  | grep -oE 'https://github.com/bluenviron/mediamtx/releases/download/[^"]*linux_amd64\.tar\.gz' | head -1)"
 tar xzf mediamtx.tgz
 ./mediamtx
 ```

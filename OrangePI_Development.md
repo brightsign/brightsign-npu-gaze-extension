@@ -64,7 +64,7 @@ scp -r install/ user@orangepi-ip:/path/to/project/
 
 #### Clone the project on Orange Pi:
 ```bash
-git clone <repository-url>
+git clone git@github.com:brightsign/brightsign-npu-gaze-extension.git
 cd brightsign-npu-gaze-extension
 ```
 
@@ -75,7 +75,7 @@ Download the appropriate RKNN runtime for your Orange Pi:
 ```bash
 # For Orange Pi 5 (RK3588)
 wget https://github.com/airockchip/rknn-toolkit2/blob/v2.3.0/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so
-wget https://github.com/airockchip/rga/releases/download/v2.1.0/librga.so
+wget https://github.com/airockchip/librga/raw/main/libs/Linux/gcc-aarch64/librga.so
 
 # Copy to system location or use local directory
 mkdir -p lib
