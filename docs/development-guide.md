@@ -29,7 +29,7 @@ Before starting development, ensure you have:
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone git@github.com:brightsign/brightsign-npu-gaze-extension.git
 cd brightsign-npu-gaze-extension
 
 # Setup development environment

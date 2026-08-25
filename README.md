@@ -4,30 +4,39 @@
 
 This project provides a complete, automated build system to create BrightSign extensions that run RetinaFace-based gaze detection on the NPU at real-time performance, detecting faces and determining if people are looking at the screen.
 
+> **Looking for a complete solution?**
+> [**Argus**](https://github.com/brightsign/argus-audience-measurement-extension) is BrightSign's
+> reference audience-measurement application: person counting, gaze detection, dwell time,
+> entry/exit events, and movement analytics, published over MQTT and Prometheus. This repository
+> is a single-purpose example of one piece of that system.
+>
+> *Argus uses this same RetinaFace gaze model as one of its two inference paths.*
+
 ## Latest Improvements
 
-- Now supports RTSP streams, including higer resolution (2K) streams
+- Now supports RTSP streams, including higher resolution (2K) streams
 - Now supports auto-recovery if there's a loss of stream or USB camera re-plug
 
 ## Use It vs. Build It
 
 If you just want to use this BSMP extension but don't want to build it, you can just download it.
 
-* [cobra-standalone-npu_gaze-0.2.1-best.bsfw](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/download/v0.2.1-beta/cobra-standalone-npu_gaze-0.2.1-beta.bsfw)
+* [Download the latest release](https://github.com/brightsign/brightsign-npu-gaze-extension/releases/latest)
 
 It can be installed just like any other BrightSign firmware upgrade:  copy it to an SD card and boot the player with that card inserted.
 
-## Pracical Real-World Example
+## Practical Real-World Example
 
 A [simple HTML application](https://github.com/brightsign/simple-gaze-detection-html/tree/main) demonstrating the gaze detection BSMP is available for demonstration purposes.
 
 ## Release Status
 
-This is an **BETA** quality release, intended mostly for educational purposes. This model is not tuned for optimum performance and has had only standard testing.  **NOT RECOMMENDED FOR PRODUCTION USE**.
+**BETA.** API stable, tuning in progress. Interfaces are frozen; performance is not final.
+Not yet recommended for unattended production deployment.
 
 ## Image Streamer Included
 
-For test and debug purposes only, we have included a debug and test tool.  You can access a web page on the player to "see" what the output of the AI model is visually.  It will show "bounding boxes" around objects of interest.  This is started automatically and can be accessed at http://<player ip>:20200 by default.
+For test and debug purposes only, we have included a debug and test tool.  You can access a web page on the player to "see" what the output of the AI model is visually.  It will show "bounding boxes" around objects of interest.  This is started automatically and can be accessed at http://<PLAYER_IP>:20200 by default.
 
 For more information, please see the [tool documentation](https://github.com/brightsign/bs-image-stream-server).
 
@@ -41,7 +50,7 @@ __Total Time__: 60-90 minutes | __Prerequisites__: Docker, git, x86_64 Linux hos
 
 ```bash
 # 1. Clone and setup environment (5-10 minutes)
-git clone <repository-url>
+git clone git@github.com:brightsign/brightsign-npu-gaze-extension.git
 cd brightsign-npu-gaze-extension
 ./setup
 
@@ -260,7 +269,7 @@ Enable or disable the image stream server using the registry options:
 | Port Value | Behavior |
 |------------|----------|
 | `0` | __Disabled__ - Image stream server is turned off (recommended for this extension) |
-| `20200` | __Default__ - Serves camera feed at `http://player-ip:20200/image_stream.jpg` |
+| `20200` | __Default__ - Serves camera feed at `http://<PLAYER_IP>:20200/image_stream.jpg` |
 
 **Usage Examples:**
 
